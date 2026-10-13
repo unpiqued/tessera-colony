@@ -27,8 +27,12 @@ Apple's **Swift Playground** app — no Mac needed.
 ## Setup on the iPad (about 5 minutes)
 
 1. **Update Swift Playground** from the App Store (version 4.7 or later; it needs iPadOS 18+, and you have iPadOS 26).
-2. **Get the project onto the iPad.** Download the ZIP and open the **Files** app → *Downloads*.
-   Tap the ZIP once and Files unzips it into a `TesseraColony` folder.
+2. **Get the project onto the iPad.** Download the ZIP, either the one you were sent or the latest
+   version from GitHub: in Safari, open
+   [github.com/unpiqued/tessera-colony/archive/refs/heads/main.zip](https://github.com/unpiqued/tessera-colony/archive/refs/heads/main.zip)
+   (or, on the repository page, **Code → Download ZIP**). Then open the **Files** app → *Downloads* and
+   tap the ZIP once: Files unzips it into a folder, `TesseraColony` for the ZIP you were sent or
+   `tessera-colony-main` for the GitHub download.
 3. **Open the app playground.** Inside that folder, tap **`TesseraColony.swiftpm`**. It opens in Swift Playground.
    If it doesn't: open Swift Playground → *Locations* / *Browse* → pick `TesseraColony.swiftpm` from Files.
    (Moving the `.swiftpm` into *iCloud Drive → Playgrounds* keeps it in Swift Playground's own list.)
