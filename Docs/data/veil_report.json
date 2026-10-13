@@ -1,0 +1,311 @@
+{
+ "note": "Countdown-veil prototype (Tools/veil_proto.py), 5 Oct 2026. rating/slots/careless/greedy/lookahead are per difficulty: Gentle, Classic, Expert.",
+ "results": [
+  {
+   "key": "wildIceberg",
+   "variant": "plain",
+   "veil_tiles": 0,
+   "tiles": 1764,
+   "threshold": 0,
+   "slots": [
+    5,
+    3,
+    2
+   ],
+   "careless": [
+    1.0,
+    0.975,
+    0.4
+   ],
+   "greedy": [
+    true,
+    true,
+    true
+   ],
+   "rating": [
+    1,
+    1,
+    2
+   ],
+   "lookahead": [
+    true,
+    true,
+    true
+   ],
+   "teams": 28,
+   "seconds": 12
+  },
+  {
+   "key": "wildIceberg",
+   "variant": "lowside",
+   "veil_tiles": 441,
+   "tiles": 1764,
+   "threshold": 529,
+   "slots": [
+    5,
+    3,
+    2
+   ],
+   "careless": [
+    1.0,
+    0.775,
+    0.375
+   ],
+   "greedy": [
+    true,
+    true,
+    false
+   ],
+   "rating": [
+    1,
+    1,
+    4
+   ],
+   "lookahead": [
+    true,
+    true,
+    true
+   ],
+   "teams": 26,
+   "seconds": 10
+  },
+  {
+   "key": "wildIceberg",
+   "variant": "centre",
+   "veil_tiles": 588,
+   "tiles": 1764,
+   "threshold": 882,
+   "slots": [
+    6,
+    4,
+    3
+   ],
+   "careless": [
+    0.8,
+    0.3,
+    0.15
+   ],
+   "greedy": [
+    true,
+    false,
+    false
+   ],
+   "rating": [
+    1,
+    4,
+    4
+   ],
+   "lookahead": [
+    true,
+    true,
+    true
+   ],
+   "teams": 27,
+   "seconds": 9
+  },
+  {
+   "key": "halloJackOLantern",
+   "variant": "plain",
+   "veil_tiles": 0,
+   "tiles": 1760,
+   "threshold": 0,
+   "slots": [
+    6,
+    4,
+    3
+   ],
+   "careless": [
+    0.95,
+    0.425,
+    0.075
+   ],
+   "greedy": [
+    true,
+    true,
+    false
+   ],
+   "rating": [
+    1,
+    2,
+    5
+   ],
+   "lookahead": [
+    true,
+    true,
+    false
+   ],
+   "teams": 27,
+   "seconds": 9
+  },
+  {
+   "key": "halloJackOLantern",
+   "variant": "lowside",
+   "veil_tiles": 440,
+   "tiles": 1760,
+   "threshold": 528,
+   "slots": [
+    5,
+    3,
+    2
+   ],
+   "careless": [
+    1.0,
+    1.0,
+    0.425
+   ],
+   "greedy": [
+    true,
+    true,
+    false
+   ],
+   "rating": [
+    1,
+    1,
+    4
+   ],
+   "lookahead": [
+    true,
+    true,
+    true
+   ],
+   "teams": 28,
+   "seconds": 13
+  },
+  {
+   "key": "halloJackOLantern",
+   "variant": "centre",
+   "veil_tiles": 572,
+   "tiles": 1760,
+   "threshold": 880,
+   "slots": [
+    6,
+    4,
+    3
+   ],
+   "careless": [
+    0.75,
+    0.175,
+    0.075
+   ],
+   "greedy": [
+    true,
+    false,
+    false
+   ],
+   "rating": [
+    1,
+    4,
+    5
+   ],
+   "lookahead": [
+    true,
+    true,
+    true
+   ],
+   "teams": 34,
+   "seconds": 11
+  },
+  {
+   "key": "natFlamingo",
+   "variant": "plain",
+   "veil_tiles": 0,
+   "tiles": 1748,
+   "threshold": 0,
+   "slots": [
+    4,
+    2,
+    1
+   ],
+   "careless": [
+    0.875,
+    0.6,
+    0.075
+   ],
+   "greedy": [
+    true,
+    true,
+    true
+   ],
+   "rating": [
+    1,
+    2,
+    3
+   ],
+   "lookahead": [
+    true,
+    true,
+    true
+   ],
+   "teams": 28,
+   "seconds": 7
+  },
+  {
+   "key": "natFlamingo",
+   "variant": "lowside",
+   "veil_tiles": 437,
+   "tiles": 1748,
+   "threshold": 524,
+   "slots": [
+    5,
+    3,
+    2
+   ],
+   "careless": [
+    0.5,
+    0.35,
+    0.05
+   ],
+   "greedy": [
+    false,
+    false,
+    false
+   ],
+   "rating": [
+    4,
+    4,
+    5
+   ],
+   "lookahead": [
+    true,
+    true,
+    true
+   ],
+   "teams": 27,
+   "seconds": 4
+  },
+  {
+   "key": "natFlamingo",
+   "variant": "centre",
+   "veil_tiles": 570,
+   "tiles": 1748,
+   "threshold": 874,
+   "slots": [
+    6,
+    4,
+    3
+   ],
+   "careless": [
+    0.925,
+    0.65,
+    0.425
+   ],
+   "greedy": [
+    true,
+    true,
+    false
+   ],
+   "rating": [
+    1,
+    2,
+    4
+   ],
+   "lookahead": [
+    true,
+    true,
+    true
+   ],
+   "teams": 22,
+   "seconds": 7
+  }
+ ]
+}
