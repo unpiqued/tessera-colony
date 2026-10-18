@@ -25,8 +25,14 @@ export function computeLayout(board, w, h) {
     const cell = Math.max(3, Math.min(availW / cols, availH / rows));
     return { wide, cell: Math.floor(cell * 2) / 2, panelWidth };
   }
-  const panelHeight = w > 600 ? 480 : 440;
   const availW = w - 24;
+  if (w < 600) {
+    // Phones: the board fills the width (up to ~3/4 of the height); the controls scroll below it.
+    // (The iPad app keeps the whole panel on screen, which leaves a phone only a small board.)
+    const cell = Math.max(2.5, Math.min(availW / cols, (h * 0.74) / rows));
+    return { wide, cell: Math.floor(cell * 4) / 4, panelWidth: w, phone: true };
+  }
+  const panelHeight = 480;
   const availH = h - panelHeight - 30;
   const cell = Math.max(2.5, Math.min(availW / cols, availH / rows));
   return { wide, cell: Math.floor(cell * 2) / 2, panelWidth: w };
@@ -195,14 +201,16 @@ function slotView(ctx, item, pod) {
 }
 
 function tunnelsRow(ctx, compact) {
-  const { controller: c } = ctx;
+  const { controller: c, size } = ctx;
+  const phone = size.w < 600;
   const cols = [];
   for (let q = 0; q < c.tunnelCount; q++) cols.push(tunnelColumn(ctx, q, compact));
   return h('div', { class: 'col', style: { gap: '6px' } },
     h('div', { class: 'row base wrap', style: { gap: '4px 10px' } },
       h('span', { class: 'caps dim' }, 'Tunnels'),
-      h('span', { class: 'dim', style: { fontSize: '11px', opacity: 0.85, flex: '1 1 200px' } },
-        "Tap a team to send it into an open slot — each tap sends the next team in line. A team that can't reach all its tiles waits in its slot by itself.")),
+      phone ? h('span', { class: 'dim', style: { fontSize: '11px', opacity: 0.85 } }, 'Tap to send · hold to scout')
+        : h('span', { class: 'dim', style: { fontSize: '11px', opacity: 0.85, flex: '1 1 200px' } },
+          "Tap a team to send it into an open slot — each tap sends the next team in line. A team that can't reach all its tiles waits in its slot by itself.")),
     h('div', { class: 'tunnels' }, cols));
 }
 
