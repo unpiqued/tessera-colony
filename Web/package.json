@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Browser port of Tessera Colony (Swift Playground app) as a single-page artifact",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test",
     "build": "node tools/build.mjs"
   }
 }
