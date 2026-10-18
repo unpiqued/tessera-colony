@@ -147,8 +147,9 @@ test('primitives: strike, glide, swish, filters, place/echo match sounds.py (|di
   }
 });
 
-// Finished sounds are float32 (0.9 peak). One float32 step near the peak is 6e-8; the double-level
-// differences above can flip a rounding, so samples may differ by one step: tolerance 1.2e-7.
+// Finished sounds are float32 (0.9 peak). On this machine every compared sample is bit-identical
+// (worst = 0). The tolerance allows one float32 step (6e-8 near the peak) because numpy picks SIMD
+// exp/sin kernels per CPU, which may differ from V8's in the last bit of a double and flip a rounding.
 test('all 38 sounds match sounds.py sample for sample (|diff| <= 1 float32 step)', () => {
   let worst = 0, worstKey = '';
   for (const [key, ref] of Object.entries(fx.sounds)) {
@@ -187,7 +188,7 @@ test('checksums match SelfTest.swift reference values (Swift allows 0.1 %, here 
 
 test('loudest plausible moment stays below full scale (sounds.worst_case_mix: 0.818)', () => {
   // the same mix as sounds.worst_case_mix: clinks every 50 ms, drops every 80 ms, four big cues at once
-  const rate = SoundSynth.rate, S = SoundSynth;
+  const S = SoundSynth;
   const total = S.samples(2.5);
   const mix = new Float64Array(total);
   const add = (x, t, g) => {
@@ -204,7 +205,6 @@ test('loudest plausible moment stays below full scale (sounds.worst_case_mix: 0.
   for (const v of mix) peak = Math.max(peak, Math.abs(v));
   assert.ok(Math.abs(peak - fx.worst_case_mix) < 1e-6, `${peak} vs ${fx.worst_case_mix}`);
   assert.ok(peak < 0.85);
-  void rate;
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -305,6 +305,7 @@ test('without Web Audio (Node): nothing throws and nothing plays', async () => {
   sb.configure(true, 0.7, true, true, true, false);
   sb.play(SoundCue.send);
   sb.play('nonsense');
+  sb.play('toString');
   sb.tile(3, 0.2, 0.01);
   sb.deliver(-0.4, 0);
   sb.playSample(SoundSet.goal);
@@ -353,6 +354,9 @@ test('play: gates on unlock, on/off, set switches and the 90 ms per-cue throttle
   assert.equal(started(trace).length, 1, 'within 90 ms of the last send');
   sb.play(SoundCue.undo);
   assert.equal(started(trace).length, 2, 'other cues are throttled separately');
+  sb.play('toString'); sb.play('allCases'); sb.play('tile_0_0');
+  assert.equal(started(trace).length, 2, 'only cue names play');
+  assert.equal(sb.lastError, null);
   clock.t += 0.05; sb.play(SoundCue.send);
   assert.equal(started(trace).length, 3, '100 ms later');
   sb.configure(true, 0.8, true, false, true);          // action sounds off
@@ -397,9 +401,14 @@ test('tile/deliver: colour pitch, variants, panning, gains and the 50 / 80 ms th
   assert.deepEqual(s.map(x => x.gain), [0.22, 0.22, 0.22, 0.12, 0.12]);
   assert.ok(s.every(x => x.click));
   assert.deepEqual(s.map(x => +(x.at - clock.t).toFixed(9)), [0, 0.06, 0.12, 0, 0.09]);
+  clock.t += 1;
+  sb.tile(0, 0, NaN);                    // a NaN delay counts as 0 and does not break the throttle
+  sb.tile(0, 0, 0.01);
+  assert.equal(started(trace).length, 6);
+  assert.equal(started(trace)[5].at, clock.t);
   sb.configure(true, 0.8, false);        // colony clinks off
   clock.t += 1; sb.tile(0, 0, 0); sb.deliver(0, 0);
-  assert.equal(started(trace).length, 5);
+  assert.equal(started(trace).length, 6);
 });
 
 test('16x: a dense pickup stream thins to at most 20 clinks a second; 14 voices', () => {
@@ -579,8 +588,9 @@ test('Sound check: test chime ignores the set switches; report mirrors SoundChec
 });
 
 test('context clock mapping keeps clinks evenly spaced although currentTime moves in steps', () => {
-  // currentTime advances in 10.7 ms audio callbacks and runs 3 s ahead of the host clock
-  const { sb, ctx, clock, trace } = makeBoard({ quantum: 512 / 48000, ctxOffset: 3, t0: 50 });
+  // currentTime advances in 10.7 ms audio callbacks and runs 3 s ahead of the host clock; 20 ms lead
+  const q = 512 / 48000, lead = 0.02;
+  const { sb, clock, trace } = makeBoard({ quantum: q, ctxOffset: 3, t0: 50, lead });
   for (let tick = 0; tick < 300; tick++) {
     clock.t = 50 + tick * 0.1 + 0.0037 * ((tick * 7) % 5);      // irregular ticks
     // a clink every 60 ms of host time, handed over up to 0.16 s ahead
@@ -589,16 +599,22 @@ test('context clock mapping keeps clinks evenly spaced although currentTime move
   }
   const s = started(trace);
   assert.ok(s.length > 400);
-  // the mapping settles on the top of the currentTime sawtooth within the first ticks; after that
-  // the spacing of the scheduled starts equals the spacing asked for
-  const settled = s.filter(e => e.at > 50.5);
-  const gaps = [];
-  for (let i = 1; i < settled.length; i++) gaps.push((settled[i].when - settled[i - 1].when) - (settled[i].at - settled[i - 1].at));
-  const errs = gaps.map(Math.abs).sort((a, b) => a - b);
+  const errs = [];
+  for (let i = 1; i < s.length; i++) errs.push(Math.abs((s[i].when - s[i - 1].when) - (s[i].at - s[i - 1].at)));
+  errs.sort((a, b) => a - b);
   const worst = errs[errs.length - 1], p90 = errs[Math.floor(errs.length * 0.9)];
-  assert.ok(worst < 0.001 && p90 < 0.0002,
+  assert.ok(worst < 0.0002 && p90 < 0.0001,
     `spacing error max ${worst * 1000} ms, p90 ${p90 * 1000} ms (raw currentTime would give up to 10.7 ms)`);
-  // never scheduled behind the context's current time; host -> context offset is the 3 s head start
-  for (const e of s) assert.ok(e.when - (e.at + 3) > -512 / 48000 - 1e-9 && e.when - (e.at + 3) < 1e-9);
-  void ctx;
+  for (const e of s) {
+    assert.ok(e.when >= e.ctxTime + lead / 2 - 1e-9, 'scheduled at least half the lead ahead of currentTime');
+    const off = e.when - e.at - 3 - lead;              // estimate vs the true offset (top of the sawtooth: 0)
+    assert.ok(off > -q - 1e-9 && off < 1e-9, `offset error ${off}`);
+  }
+  // a stalled clock (context suspended under us) resets the mapping instead of scheduling far ahead
+  clock.t += 5;
+  const ctx2 = sb.context;
+  Object.defineProperty(ctx2, 'currentTime', { get: () => 4 + clock.t - 1.2, configurable: true });
+  sb.tile(1, 0, 0);
+  const last = started(trace).at(-1);
+  assert.ok(Math.abs(last.when - (last.at + 2.8 + lead)) < 1e-9);
 });

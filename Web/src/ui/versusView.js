@@ -14,12 +14,14 @@ import { pieceStyle } from './swatch.js';
 const LOG_LO = Math.log(0.1), LOG_HI = Math.log(16);
 const hex = c => '#' + c.toString(16).padStart(6, '0');
 
-function mountVersusBoard(el, c, index) {
+function mountVersusBoard(el, c, index, w, hgt) {
   const old = c.boardCanvases[index];
   if (old) { try { old.destroy(); } catch (e) { /* gone */ } }
   const canvas = document.createElement('canvas');
   el.appendChild(canvas);
-  c.boardCanvases[index] = new VersusBoardCanvas(canvas, c, index);
+  const bc = new VersusBoardCanvas(canvas, c, index);
+  bc.setSize(w, hgt);
+  c.boardCanvases[index] = bc;
 }
 
 function boardBox(c, index, w, hgt) {
@@ -27,10 +29,10 @@ function boardBox(c, index, w, hgt) {
   const cs = Math.max(2, Math.min(w / b.cols, hgt / b.rows));
   const bw = Math.floor(b.cols * cs), bh = Math.floor(b.rows * cs);
   const bc = c.boardCanvases[index];
-  if (bc && bc.setCell) bc.setCell(cs, bw, bh);
+  if (bc && (bc._fitW !== w || bc._fitH !== hgt)) { bc._fitW = w; bc._fitH = hgt; bc.setSize(w, hgt); }
   return h('div', { class: 'vboard', key: 'vb' + index, style: { width: w + 'px', height: hgt + 'px', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' } },
     h('div', { class: 'board-wrap', key: 'vbw' + index + '-' + c.uid, style: { width: bw + 'px', height: bh + 'px', borderRadius: '10px', border: '1px solid var(--panel-edge)' },
-      ref: el => mountVersusBoard(el, c, index), 'aria-label': 'Mosaic board' }));
+      ref: el => mountVersusBoard(el, c, index, w, hgt), 'aria-label': 'Mosaic board' }));
 }
 
 export function versusView(ctx) {
@@ -94,7 +96,7 @@ function versusControls(ctx, p) {
   const waiting = c.waiting(p);
   const working = c.working(p, t);
   const pod = 38;
-  const reach = c.rules.reachDepth !== undefined ? c.rules.reachDepth : (c.rules.picking === 'reach3' ? 3 : 1);
+  const reach = VersusRules.reachDepth(c.rules);
   const pods = [];
   working.forEach((w, i) => pods.push(h('span', { key: 'w' + i }, chamberPod(c.palette, { family: w.family, remaining: w.left }, pod))));
   waiting.forEach((w, i) => pods.push(h('button', { key: 'q' + i, type: 'button', style: { borderRadius: '12px', boxShadow: '0 0 0 2px var(--brass)' }, onclick: () => c.returnTeam(p, w.uid),

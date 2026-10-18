@@ -54,23 +54,24 @@ function teamPressHandlers(c, q) {
   };
 }
 
-function mountBoard(el, c) {
+function mountBoard(el, c, cell) {
   if (c.boardCanvas) { try { c.boardCanvas.destroy(); } catch (e) { /* already gone */ } }
   const canvas = document.createElement('canvas');
   el.appendChild(canvas);
-  c.boardCanvas = new BoardCanvas(canvas, c);
+  c.boardCanvas = new BoardCanvas(canvas, c, cell);
+  c.boardCanvas._cell = cell;
 }
 
 export function gameView(ctx) {
   const { app, controller: c, ui, size, rerender } = ctx;
   const layout = computeLayout(c.board, size.w, size.h);
   const bw = Math.round(c.board.cols * layout.cell), bh = Math.round(c.board.rows * layout.cell);
-  if (c.boardCanvas && c.boardCanvas.setCell) c.boardCanvas.setCell(layout.cell, bw, bh);
+  if (c.boardCanvas && c.boardCanvas._cell !== layout.cell) { c.boardCanvas._cell = layout.cell; c.boardCanvas.setCell(layout.cell); }
   const backdrop = c.groundColor;
   const bg = `rgb(${((backdrop >> 16) & 255) * 0.5 | 0},${((backdrop >> 8) & 255) * 0.5 | 0},${(backdrop & 255) * 0.5 | 0})`;
 
   const boardStack = h('div', { class: 'board-area', key: 'board-area' },
-    h('div', { class: 'board-wrap', key: 'board-' + c.level.id, style: { width: bw + 'px', height: bh + 'px' }, ref: el => mountBoard(el, c) }),
+    h('div', { class: 'board-wrap', key: 'board-' + c.level.id, style: { width: bw + 'px', height: bh + 'px' }, ref: el => mountBoard(el, c, layout.cell) }),
     c.coach ? h('div', { class: 'coach-host', key: 'coach' },
       h('div', { class: 'coach', role: 'status' },
         h('span', { class: 'brass', style: { paddingTop: '2px' } }, icon('ant.fill', 24)),

@@ -8,7 +8,7 @@ import { HintSolver } from '../core/hint.js';
 import {
   AntScheduler, MosaicRaster, SoundBoard, Sfx, ScoreRules, ChallengeModifier, ColourRule,
   SaveStore, makeSaveGame, makeHighScoreEntry, levelChambers, difficultyTitle, paletteName,
-  PathStyleDefault, busyEntries, soilColor,
+  PathStyleDefault, busyEntries, soilColor, canvasDataURL,
 } from './compat.js';
 
 const SPEED_MIN = 0.1, SPEED_MAX = 16.0;
@@ -124,7 +124,10 @@ export class GameController {
     SoundBoard.shared.prepare();
   }
 
-  changed() { this.onChange(this); }
+  changed() {
+    if (this.boardCanvas) this.boardCanvas.invalidate();
+    this.onChange(this);
+  }
 
   // MARK: - Time & speed
 
@@ -536,12 +539,14 @@ export class GameController {
     this.hintsUsed++;
     this.changed();
     const b = this.board, tunnels = this.game.tunnels, st = this.game.state, mv = this.game.moves.slice(), sol = this.level.solution;
-    // The search can take up to ~3 s off the designed line; let the spinner paint first.
-    setTimeout(() => {
-      if (this.game.state !== st) { this.hintBusy = false; this.changed(); return; }
-      const r = HintSolver.hint(b, tunnels, st, mv, sol);
-      this.applyHint(r);
-    }, 30);
+    const stale = () => this.game.state !== st;
+    const done = r => { if (stale()) { this.hintBusy = false; this.changed(); return; } this.applyHint(r); };
+    if (this.app && this.app.runHint) {
+      // off the main thread (the search can take seconds off the designed line)
+      this.app.runHint(this.level, tunnels, st, mv, sol).then(done, () => done(HintSolver.hint(b, tunnels, st, mv, sol)));
+    } else {
+      setTimeout(() => done(HintSolver.hint(b, tunnels, st, mv, sol)), 30);
+    }
   }
 
   applyHint(r) {
@@ -686,7 +691,7 @@ export class GameController {
     if (this.miniDirty && (force || count === b.tileCount || ms - this.miniBuiltAt >= 500)) {
       const snap = this.miniShown.slice();
       const canvas = MosaicRaster.miniature(b, this.palette, i => snap[i] === 1);
-      this.miniImage = canvas ? canvas.toDataURL() : null;
+      this.miniImage = canvas ? canvasDataURL(canvas) : null;
       this.miniDirty = false;
       this.miniBuiltAt = ms;
       dirty = true;

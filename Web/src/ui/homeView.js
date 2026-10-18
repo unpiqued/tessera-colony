@@ -427,7 +427,7 @@ function settingsSheet(ctx, close) {
         h('div', { class: 'form-row stack' },
           h('button', { type: 'button', class: 'row brass', style: { fontWeight: 600, minHeight: '36px' }, onclick: () => {
             const played = SoundBoard.shared.playTestSound();
-            setTimeout(() => { ui.soundReport = SoundBoard.shared.describeStatus ? SoundBoard.shared.describeStatus(played) : JSON.stringify(SoundBoard.shared.status(), null, 1); rerender(); }, 400);
+            setTimeout(() => { ui.soundReport = app.soundReport(played); rerender(); }, 400);
           } }, icon('speaker.wave.3', 18), 'Sound check: play a test chime'),
           ui.soundReport ? h('div', { class: 'mono' }, ui.soundReport) : null)),
       h('div', { class: 'form-foot' }, 'Action sounds are dry wood and clay: sending, scouting, undo, adding a slot, returning a team, a refused tap, a team that must wait, blocked, hints. Goal sounds are bells and glass: a team finishing, a whole colour lifted, each quarter of the mosaic home, the finished mosaic, a new best time and a newly unlocked mosaic. Colony clinks give every colour its own note. Everything is synthesized in the browser; it starts after your first tap.')),

@@ -24,6 +24,7 @@
 // ───────────────────────────────────────────────────────────────────────────────────────────────
 
 import { BoardPainter } from './boardPainter.js';
+import { AntSpriteCache } from './antRenderer.js';
 import { Theme } from './theme.js';
 
 /** GameView.computeLayout(size:wide:) → { cell, panelWidth } (points per cell at zoom 1). */
@@ -51,14 +52,14 @@ const roundHalfUp = x => Math.floor(x + 0.5);
 function easeOut(x) {
   if (x <= 0) return 0;
   if (x >= 1) return 1;
-  // solve bx(s) = x for s (control points x: 0, 0.58), then return by(s) (y: 0, 1)
+  // solve bx(s) = x for s (control x: 0, 0.58), then return by(s) (control y: 0, 1)
   const bx = s => 3 * (1 - s) * s * s * 0.58 + s * s * s;
   let lo = 0, hi = 1, s = x;
   for (let k = 0; k < 30; k++) {
     s = (lo + hi) / 2;
     if (bx(s) < x) lo = s; else hi = s;
   }
-  return 3 * (1 - s) * (1 - s) * s * 0 + 3 * (1 - s) * s * s * 1 + s * s * s;
+  return 3 * (1 - s) * s * s + s * s * s;
 }
 
 function roundedRectPath(ctx, x, y, w, h, r) {
@@ -91,7 +92,7 @@ export class BoardCanvas {
     this.pan = { x: 0, y: 0 };
     this.panBase = { x: 0, y: 0 };
     this.dpr = 0;
-    /** Time spent in the last draw() call and a running log (for profiling), in ms. */
+    /** Time spent in the last draw() call (ms); onDraw(ms, nowMs) is called after each frame (profiling). */
     this.lastDrawMs = 0;
     this.onDraw = null;
     this._raf = 0;
@@ -106,7 +107,8 @@ export class BoardCanvas {
     canvas.setAttribute('role', 'img');
     canvas.style.touchAction = 'none';
     canvas.style.display = canvas.style.display || 'block';
-    canvas.style.borderRadius = BoardCanvas.cornerRadius + 'px';
+    canvas.style.borderRadius = this.constructor.cornerRadius + 'px';
+    this._ownSprites = null;
     this._listeners = [];
     this._listen();
     this.setCell(cell);
@@ -122,8 +124,18 @@ export class BoardCanvas {
   }
 
   get boardSize() {
-    const b = this.source.board;
+    const b = this._boardOf(this.source);
     return { width: b.cols * this.cell, height: b.rows * this.cell };
+  }
+
+  /** The Board this view shows (subclasses: one board of a match). */
+  _boardOf(src) { return src.board; }
+
+  /** source.sprites, or a cache of our own if the source has none. */
+  _sprites(src) {
+    if (src.sprites) return src.sprites;
+    if (!this._ownSprites) this._ownSprites = new AntSpriteCache();
+    return this._ownSprites;
   }
 
   /** Swap the controller (e.g. after restart builds a new one) and redraw. */
@@ -256,7 +268,7 @@ export class BoardCanvas {
     }
 
     // 4b-5. Scout trails and the ants.
-    BoardPainter.paintAnts(ctx, b, cs, t, trips, src.sprites, !!src.detailedAnts && cs * this.zoom >= 5, false);
+    BoardPainter.paintAnts(ctx, b, cs, t, trips, this._sprites(src), !!src.detailedAnts && cs * this.zoom >= 5, false);
     ctx.restore();
 
     // Border (strokeBorder: inside the rounded rectangle, not zoomed).
@@ -408,5 +420,86 @@ export class BoardCanvas {
     this.pan = this._clampedPan({ x: this.pan.x - e.deltaX * unit, y: this.pan.y - e.deltaY * unit });
     this.panBase = { x: this.pan.x, y: this.pan.y };
     this.invalidate();
+  }
+}
+
+/** VersusMatch.sharedHoles (VersusEngine.swift): two hills on a shared board, a quarter and three
+ *  quarters of the way across, three rows from the bottom. */
+function sharedHoles(b) {
+  const row = b.rows - 3;
+  return [row * b.cols + Math.floor(b.cols / 4), row * b.cols + Math.floor((3 * b.cols) / 4)];
+}
+
+/**
+ * Browser equivalent of VersusBoardView (VersusView.swift): one board of a two-player match, drawn
+ * by the same painter as the single-player board, sized to fit its box (no zoom or pan).
+ *
+ * `source` (VersusController, same names as the Swift one):
+ *   match.boards[index]   { board: Board, holes: Map|object|array (player → hole cell) }
+ *   rules.layout          'race' | 'shared' (shared: player-coloured hill rings and ant owner rings)
+ *   schedulers[index]     AntScheduler        rasters[index]   MosaicRaster | null
+ *   ensureRaster(index, px), gameTime(ms), groundColor, detailedAnts, animating, sprites (optional)
+ * Call setSize(width, height) with the box it must fit (cs = max(2, min(w / cols, h / rows))).
+ */
+export class VersusBoardCanvas extends BoardCanvas {
+  static cornerRadius = 10;
+
+  constructor(canvas, source, index) {
+    super(canvas, source, 8);
+    this.index = index;
+    this.setCell(this.cell);
+  }
+
+  _boardOf(src) { return src.match.boards[this.index || 0].board; }
+
+  /** No gestures on the two-player boards. */
+  _listen() {}
+
+  /** Fit the board into a box of width × height CSS px. */
+  setSize(width, height) {
+    const b = this._boardOf(this.source);
+    this.setCell(Math.max(2, Math.min(width / b.cols, height / b.rows)));
+  }
+
+  draw(nowMs = performance.now()) {
+    const t0 = performance.now();
+    this._resize(false);
+    const src = this.source;
+    const index = this.index || 0;
+    const vb = src.match.boards[index];
+    const b = vb.board;
+    const cs = this.cell;
+    const ctx = this.ctx;
+    const t = src.gameTime(nowMs);
+    const { width: w, height: h } = this.boardSize;
+    const sx = this.canvas.width / w, sy = this.canvas.height / h;
+    src.ensureRaster(index, Math.max(2, roundHalfUp(cs * sx)));
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.setTransform(sx, 0, 0, sy, 0, 0);
+    const trips = src.schedulers[index].trips;
+    const hv = vb.holes;
+    const holes = (hv instanceof Map ? [...hv.values()] : Array.isArray(hv) ? [...hv] : Object.values(hv || {}))
+      .sort((a, c) => a - c);
+    BoardPainter.paintBase(ctx, b, cs, t, nowMs, { width: w, height: h }, src.rasters[index], trips, src.groundColor,
+      holes.length ? holes : [b.hole], false);
+    const shared = src.rules && src.rules.layout === 'shared';
+    if (shared) {
+      // mark each hill with its player's colour
+      sharedHoles(b).forEach((hole, p) => {
+        ctx.beginPath();
+        ctx.ellipse((b.x(hole) + 0.5) * cs, (b.y(hole) + 0.5) * cs, 1.4 * cs, 0.9 * cs, 0, 0, 2 * Math.PI);
+        ctx.strokeStyle = '#' + BoardPainter.playerColors[p].toString(16).padStart(6, '0');
+        ctx.lineWidth = Math.max(1.5, cs * 0.25);
+        ctx.stroke();
+      });
+    }
+    BoardPainter.paintAnts(ctx, b, cs, t, trips, this._sprites(src), !!src.detailedAnts && cs >= 5, shared);
+    roundedRectPath(ctx, 0.5, 0.5, w - 1, h - 1, VersusBoardCanvas.cornerRadius - 0.5);
+    ctx.strokeStyle = Theme.panelEdge;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    this.lastDrawMs = performance.now() - t0;
+    if (this.onDraw) this.onDraw(this.lastDrawMs, nowMs);
   }
 }

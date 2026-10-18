@@ -98,7 +98,10 @@ test('packs and themes match the Swift tables in Level.swift', { skip: swift ===
   assert.deepEqual([...LevelCatalog.collectionPackIDs].sort(), [...coll.matchAll(/"(\w+)"/g)].map(x => x[1]).sort());
   // every packRule branch names the same pack list and label as Swift
   const body = swift.match(/static func packRule[\s\S]*?\n    }\n/)[0];
-  for (const m of body.matchAll(/case "(\w+)":\n\s+return UnlockRule\(anyOf: (\w+)\.map \{ \$0\.id \}, label: "([^"]+)"\)/g)) {
+  const branches = [...body.matchAll(/case "(\w+)":\n\s+return UnlockRule\(anyOf: (\w+)\.map \{ \$0\.id \}, label: "([^"]+)"\)/g)];
+  assert.equal(branches.length, 15);
+  assert.equal(themes.length, 8);
+  for (const m of branches) {
     const r = LevelCatalog.packRule(m[1]);
     assert.deepEqual(r, { anyOf: ids(LevelCatalog[m[2]]), label: m[3] }, m[1]);
   }

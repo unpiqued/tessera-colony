@@ -94,6 +94,11 @@ def main():
         time.sleep(6.0)
         page.screenshot(path=str(OUT / "koi_pond_scout.png"))
 
+        # 2b. Two-player shared board (VersusBoardCanvas): two hills with player rings, owner rings on ants.
+        page.evaluate("harness.versus('koiPond', 4)")
+        time.sleep(6.0)
+        page.screenshot(path=str(OUT / "versus_shared.png"))
+
         # 3. Sunflower (6,048 tiles), resumed half-way so routes are long: send 12 teams at once and let
         #    the hole release ants until as many walk as the game allows (one ant per 0.18 s).
         report["sunflower"] = page.evaluate("harness.load('sunflower', {style: 'randomTeam', capacity: 14, restore: 30})")
@@ -143,6 +148,7 @@ def main():
         perf["stress_over_320_detailed_setting_on"] = page.evaluate("harness.measure(4000)")
         report["perf"] = perf
         report["sunflower_end"] = page.evaluate("harness.info()")
+        report["miniature"] = page.evaluate("harness.miniatureCheck()")
         browser.close()
     srv.shutdown()
     report["errors"] = errors

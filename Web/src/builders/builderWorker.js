@@ -18,12 +18,15 @@
 //   'photo'   {image, detail, seed, id, title, probe?}
 //                                               -> { result: {kind:'success', value}|{kind:'failure', error}, stats }
 //   'probe'   {level, trials?}                  -> { stats }
+//   'hint'    {art, tunnels, state, moves, solution} -> { hint: HintResult }
 // seed: BigInt (UInt64) or number; image: PixelImage {width, height, rgba} or ImageData-like
 // {width, height, data}; DifficultyStats: { careless: [g, c, e], greedy: [g, c, e] }.
 
 import { PatternLevelBuilder } from './patternLevelBuilder.js';
 import { PhotoLevelBuilder } from './photoLevelBuilder.js';
 import { DifficultyProbe } from './difficultyProbe.js';
+import { Board } from '../core/board.js';
+import { HintSolver } from '../core/hint.js';
 
 /** id of the <script type="application/json"> element holding the worker bundle's source text. */
 export const BUILDER_WORKER_SCRIPT_ID = 'tc-builder-worker';
@@ -43,6 +46,11 @@ export function runBuild(kind, params) {
     }
     case 'probe':
       return { stats: DifficultyProbe.measure(p.level, p.trials ?? 10) };
+    case 'hint': {
+      // HintSolver off the main thread: the search can take ~4 s on a slow device off the designed line.
+      const board = new Board(p.art);
+      return { hint: HintSolver.hint(board, p.tunnels, p.state, p.moves, p.solution) };
+    }
     default:
       throw new Error(`unknown build kind: ${kind}`);
   }

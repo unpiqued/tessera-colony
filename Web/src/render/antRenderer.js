@@ -373,7 +373,7 @@ export class AntRenderer {
         roundRectPath(carriedEdges, tx * cs - half, ty * cs - half, 2 * half, 2 * half, half * 0.3);
       }
     }
-    ctx.setTransform(base);
+    ctx.setTransform(B_a, B_b, B_c, B_d, B_e, B_f);
     if (carried !== null) {
       for (const [color, path] of carried) {
         ctx.fillStyle = shadeCSS(color, 1);

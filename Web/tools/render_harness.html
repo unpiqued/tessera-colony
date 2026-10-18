@@ -33,7 +33,7 @@ import { Game } from '../src/core/engine.js';
 import { AntScheduler } from '../src/render/antScheduler.js';
 import { AntSpriteCache } from '../src/render/antRenderer.js';
 import { MosaicRaster } from '../src/render/mosaicRaster.js';
-import { BoardCanvas, computeLayout } from '../src/render/boardCanvas.js';
+import { BoardCanvas, VersusBoardCanvas, computeLayout } from '../src/render/boardCanvas.js';
 import { BoardPainter } from '../src/render/boardPainter.js';
 import { AntRenderer } from '../src/render/antRenderer.js';
 import { GroundPresets } from '../src/render/theme.js';
@@ -215,6 +215,40 @@ window.harness = {
     return sent;
   },
   undo() { controller.undo(); },
+  /** Two-player shared board: both players' teams (player 1 uids + 100000) on one board, two hills. */
+  versus(id, moves = 4) {
+    if (ticker) clearInterval(ticker);
+    if (view) view.destroy();
+    const raw = data.levels[id];
+    const level = { ...raw, tunnels: raw.tunnels.map(q => q.map(([family, quota]) => ({ family, quota }))) };
+    const board = new Board(level.art);
+    const row = board.rows - 3;
+    const holes = { 0: row * board.cols + Math.floor(board.cols / 4), 1: row * board.cols + Math.floor(3 * board.cols / 4) };
+    const game = new Game(level, board, 9);
+    const sch = new AntScheduler(board, palette);
+    sch.style = 'randomTeam';
+    const t0 = performance.now();
+    const src = {
+      match: { boards: [{ board, holes }] }, rules: { layout: 'shared' }, schedulers: [sch], rasters: [null],
+      groundColor: data.palette.soil, detailedAnts: true, animating: true,
+      gameTime: ms => (ms - t0) / 1000,
+      ensureRaster(i, px) {
+        if (this.rasters[i] && this.rasters[i].cellPx === px) return;
+        this.rasters[i] = new MosaicRaster(board, palette, px, board.initialOpen(), this.groundColor);
+      },
+    };
+    for (let k = 0; k < moves; k++) {
+      const ev = game.dispatch(level.solution[k]);
+      // alternate the moves between the players (player 1's team uids are offset by playerBase)
+      sch.schedule(ev.map(c => ({ ...c, team: c.team + (k % 2) * 100000 })), k, 0.04 + k * 0.5);
+    }
+    document.getElementById('panel').style.width = '470px';
+    document.getElementById('title').textContent = level.title + ' · two players, shared board';
+    view = new VersusBoardCanvas(canvas, src, 0);
+    view.setSize(600, 780);
+    ticker = setInterval(() => { src.rasters[0]?.sync(sch.liftTime, src.gameTime(performance.now())); }, 100);
+    return { cell: view.cell };
+  },
   addColony(restore, sends, style = 'randomAnt') { controller.addColony(restore, sends, style); },
   setSpeed(s) { controller.setSpeed(s); },
   setStyle(s) { controller.mainScheduler.style = s; },
@@ -256,6 +290,13 @@ window.harness = {
     }
     out.sort((a, b) => a - b);
     return { avg: out.reduce((a, b) => a + b, 0) / n, p95: out[Math.floor(n * 0.95)], visible: controller.visibleCount() };
+  },
+  /** MosaicRaster.miniature of the current level: a <canvas> element, one pixel per art tile. */
+  miniatureCheck() {
+    const b = controller.board;
+    const c = MosaicRaster.miniature(b, palette, i => controller.mainScheduler.homeTime[i] <= controller.now);
+    const px = [...c.getContext('2d').getImageData(0, 0, 1, 1).data];
+    return { tag: c.tagName, width: c.width, height: c.height, artWidth: b.artWidth, artHeight: b.artHeight, firstPixel: px };
   },
   webgl() {
     try {

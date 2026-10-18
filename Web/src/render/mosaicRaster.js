@@ -262,10 +262,11 @@ export class MosaicRaster {
     return px;
   }
 
-  /** miniature(board:palette:shown:) → small canvas (artWidth × artHeight), or null without canvas. */
+  /** miniature(board:palette:shown:) → small <canvas> element (artWidth × artHeight; can be put in the
+   *  page or drawn with drawImage; scale it up with CSS `image-rendering: pixelated`), or null without canvas. */
   static miniature(board, palette, shown) {
     const w = Math.max(1, board.artWidth), h = Math.max(1, board.artHeight);
-    const surf = makeCanvas(w, h);
+    const surf = makeCanvas(w, h, true);
     if (!surf) return null;
     const px = MosaicRaster.miniaturePixels(board, palette, shown);
     surf.ctx.putImageData(new ImageData(px, w, h), 0, 0);

@@ -1,14 +1,16 @@
 // Port of SoundBoard.swift: the synthesized sound effects and the voice pool that plays them, on the
 // Web Audio API. SoundSynth computes every sample in JS exactly like the Swift buffer code (same
-// recipes, same 64-bit LCG noise, same one-pole filters, same fades and normalisation), so the
-// sounds match Tools/sounds.py to float32 precision (test/sound.test.js). Each sound is rendered
-// once into an AudioBuffer; playing one is a buffer source started at a precise `when`, so hundreds
-// of clink requests a second at 16x stay cheap (the board thins them to about 20 a second anyway).
+// recipes, same 64-bit LCG noise, same one-pole filters, same fades and normalisation); the float32
+// results are bit-identical to Tools/sounds.py on every sample the tests compare (test/sound.test.js).
+// Each sound is rendered once into an AudioBuffer; playing one is a buffer source started at a
+// precise `when`, so hundreds of clink requests a second at 16x stay cheap (the board thins them to
+// about 20 a second anyway).
 //
 // Browser rules handled here (no DOM is touched; only Web Audio and navigator.audioSession):
 // * An AudioContext may only start after a user gesture. The UI calls `SoundBoard.shared.unlock()`
-//   from its pointerdown / keydown handlers (calling it on every one is cheap and lets iOS recover
-//   after an interruption). Until then every play call is a silent no-op that never throws.
+//   from capture-phase pointerdown, pointerup and keydown listeners (a touch pointerdown is not a
+//   user activation, its pointerup is). Calling it on every event is cheap and lets iOS recover
+//   after an interruption. Until then every play call is a silent no-op that never throws.
 // * When the browser suspends or interrupts the context (tab hidden on iOS, phone call, ...) every
 //   queued sound is dropped at once, so nothing stale bursts out when it resumes. `setHidden(hidden)`
 //   (called by the UI from `visibilitychange`) suspends audio while the page is hidden.
@@ -459,6 +461,12 @@ function audioSession() {
 
 function errorText(e) { return e && e.message ? e.message : String(e); }
 
+/** max(0, delay) as Swift computes it for a finite delay; NaN / infinite count as 0. */
+function nonNegative(delay) { return Number.isFinite(delay) ? Math.max(0, delay) : 0; }
+
+/** Own-property test (cue names come from callers; 'toString' must not look like a sound). */
+function HAS(obj, key) { return obj !== null && Object.prototype.hasOwnProperty.call(obj, key); }
+
 /**
  * Plays the synthesized effects through a small pool of voices.
  *
@@ -561,10 +569,8 @@ export class SoundBoard {
 
   /** Called with the saved settings at launch and whenever they change. */
   configure(on, volume, tileClicks, actions = true, goals = true, ignoreSilentMode = true) {
-    const silentMode = !!ignoreSilentMode;
-    if (silentMode !== this._ignoresSilentMode) {
-      this._ignoresSilentMode = silentMode;
-    }
+    // Swift restarts its engine with the new session category; here the type applies at once
+    this._ignoresSilentMode = !!ignoreSilentMode;
     this._applyAudioSession();
     this._isOn = !!on;
     this._tileClicks = !!tileClicks;
@@ -581,9 +587,9 @@ export class SoundBoard {
   }
 
   /**
-   * Synthesizes every sound once, in slices of a few milliseconds so the page stays responsive
-   * (about a quarter of a second of work in all). Returns a promise that resolves when all 38 are
-   * ready (Swift returns nothing; awaiting it is optional).
+   * Synthesizes every sound once, one or more sounds per macrotask so the page stays responsive
+   * (about 0.3 s of work in all; the longest slice, `complete`, about 60 ms on a desktop). Returns a
+   * promise that resolves when all 38 are ready (Swift returns nothing; awaiting it is optional).
    */
   prepare() {
     if (this._samples) return Promise.resolve();
@@ -612,7 +618,7 @@ export class SoundBoard {
     return this._buildPromise;
   }
 
-  /** Synthesizes everything right now (blocking, ~0.2 s). Used by tests and offline rendering. */
+  /** Synthesizes everything right now (blocking, ~0.3 s). Used by tests and offline rendering. */
   prepareNow() {
     if (!this._samples) this._install(SoundSynth.buildAll());
   }
@@ -626,9 +632,9 @@ export class SoundBoard {
   // MARK: playing
 
   play(cue, delay = 0) {
-    const info = SOUND_CUE_INFO[cue];
+    const info = HAS(SOUND_CUE_INFO, cue) ? SOUND_CUE_INFO[cue] : null;
     if (!info || !this._isOn || !(info.set === 'action' ? this._actionSounds : this._goalSounds)) return;
-    if (!this._samples || !this._samples[cue]) return;
+    if (!HAS(this._samples, cue)) return;
     const now = this._now();
     const last = this._lastCue[cue];
     if (last !== undefined && now - last < 0.09) return;
@@ -655,13 +661,13 @@ export class SoundBoard {
   tile(family, pan, delay) {
     if (!this._isOn || !this._tileClicks) return;
     const now = this._now();
-    const at = now + Math.max(0, delay);
+    const at = now + nonNegative(delay);
     if (at - this._lastTile < 0.05) return;
     this._counter += 1;
     const nf = SoundSynth.tileFamilies;
     const f = (((family | 0) % nf) + nf) % nf;
     const key = `tile_${f}_${this._counter % SoundSynth.variants}`;
-    if (!this._samples || !this._samples[key]) return;
+    if (!HAS(this._samples, key)) return;
     if (this._start(key, SoundBoard.tileGain, pan, delay, true, SoundBoard.maxDelay, now)) this._lastTile = at;
   }
 
@@ -669,11 +675,11 @@ export class SoundBoard {
   deliver(pan, delay) {
     if (!this._isOn || !this._tileClicks) return;
     const now = this._now();
-    const at = now + Math.max(0, delay);
+    const at = now + nonNegative(delay);
     if (at - this._lastDeliver < 0.08) return;
     this._counter += 1;
     const key = `deliver_${this._counter % SoundSynth.variants}`;
-    if (!this._samples || !this._samples[key]) return;
+    if (!HAS(this._samples, key)) return;
     if (this._start(key, SoundBoard.deliverGain, pan, delay, true, SoundBoard.maxDelay, now)) this._lastDeliver = at;
   }
 
@@ -707,13 +713,17 @@ export class SoundBoard {
   // MARK: browser lifecycle (JS only)
 
   /**
-   * Creates and starts the AudioContext. Call it from a user gesture (pointerdown / keydown /
-   * click); calling it again later is cheap and resumes a context the browser suspended (needed on
-   * iOS after an interruption). Returns true when a context exists. Never throws.
+   * Creates and starts the AudioContext. Call it from user gestures (pointerdown, pointerup,
+   * keydown; a touch only counts on pointerup / touchend / click). Calling it again later is cheap
+   * and resumes a context the browser suspended (needed on iOS after an interruption). Returns true
+   * when a context exists. Never throws.
    */
   unlock() {
     if (this._ctx) {
-      if (!this._offline && this._ctx.state !== 'running' && this._isOn && !this._hidden) this._resume(true);
+      if (!this._offline && this._ctx.state !== 'running' && this._isOn && !this._hidden) {
+        this._primeOutput();
+        this._resume(true);
+      }
       return true;
     }
     const Ctor = this._createContext ? null : audioContextConstructor();
@@ -786,7 +796,7 @@ export class SoundBoard {
     }
     const buffer = this._buffer(key);
     if (!buffer) return false;
-    const d = Number.isFinite(delay) ? Math.min(maxDelay, Math.max(0, delay)) : 0;
+    const d = Math.min(maxDelay, nonNegative(delay));
     const length = this._samples[key].length / SoundSynth.rate;
     const p = Number.isFinite(pan) ? Math.max(-1, Math.min(1, pan)) : 0;
     const ctx = this._ctx;
@@ -809,7 +819,7 @@ export class SoundBoard {
       out.connect(this._submix);
       // Swift plays d < 4 ms "as soon as possible"; Web Audio takes any time (a past one plays at
       // once) and the lead keeps it in the future, so every sound gets its exact start.
-      when = this._contextTime(now) + this._lead + d;
+      when = Math.max(ctx.currentTime, this._contextTime(now) + this._lead + d);
       src.onended = () => {
         try { src.disconnect(); g.disconnect(); if (panner) panner.disconnect(); } catch (e) { /* already gone */ }
         if (this._voiceNode[k] === src) this._voiceNode[k] = null;
@@ -936,9 +946,8 @@ export class SoundBoard {
   }
 
   _buffer(key) {
-    const have = this._buffers[key];
-    if (have) return have;
-    const x = this._samples && this._samples[key];
+    if (HAS(this._buffers, key)) return this._buffers[key];
+    const x = HAS(this._samples, key) ? this._samples[key] : null;
     const ctx = this._ctx;
     if (!x || !ctx) return null;
     try {
@@ -955,10 +964,11 @@ export class SoundBoard {
 
   /**
    * Host seconds -> AudioContext time. currentTime only moves once per audio callback, so the
-   * offset (currentTime - host) is a sawtooth; its running maximum (allowed to slide 0.2 ms per
-   * second for drift between the audio and host clocks, reset when the context stalls or jumps)
-   * gives a smooth mapping that is never behind currentTime. Clinks handed over in different ticks
-   * then keep their spacing to a fraction of a millisecond instead of a whole audio callback.
+   * sampled offset (currentTime - host) is a sawtooth. The estimate creeps up towards the top of
+   * that sawtooth at 1 ms per second and slides down 0.2 ms per second (drift between the audio and
+   * host clocks); it jumps only when it is more than half the scheduling lead behind (so `when`
+   * stays ahead of the render position) or when the context clock stalled. Clinks handed over in
+   * different ticks therefore keep their spacing to about 0.1 ms instead of a whole audio callback.
    */
   _contextTime(hostNow) {
     const ctx = this._ctx;
@@ -969,12 +979,14 @@ export class SoundBoard {
     if (off === null) {
       off = sample;
     } else {
-      off -= 0.0002 * Math.max(0, hostNow - this._clockAt);
-      if (sample > off || off - sample > 0.1) off = sample;
+      const dt = Math.max(0, hostNow - this._clockAt);
+      off -= 0.0002 * dt;
+      if (sample > off + Math.max(0.002, this._lead / 2) || off - sample > 0.1) off = sample;
+      else if (sample > off) off = Math.min(sample, off + 0.001 * dt);
     }
     this._clockOffset = off;
     this._clockAt = hostNow;
-    return Math.max(ctx.currentTime, hostNow + off);
+    return hostNow + off;
   }
 
   _stopVoice(k) {

@@ -4,7 +4,8 @@
 import { render } from './ui/vdom.js';
 import { homeView } from './ui/homeView.js';
 import { gameView } from './ui/gameView.js';
-import { bootApp, SoundBoard } from './ui/compat.js';
+import { SoundBoard } from './ui/compat.js';
+import { bootApp } from './ui/boot.js';
 import { versusView, versusSetupSheet } from './ui/versusView.js';
 
 const root = document.getElementById('app');
@@ -55,7 +56,7 @@ function start() {
   app = bootApp(rerender);
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(rerender).observe(root);
   else window.addEventListener('resize', rerender);
-  window.addEventListener('pointerdown', unlockAudio, { capture: true });
+  for (const t of ['pointerdown', 'pointerup', 'touchend']) window.addEventListener(t, unlockAudio, { capture: true });
   window.addEventListener('keydown', e => {
     unlockAudio();
     if (e.key === 'Escape') {
