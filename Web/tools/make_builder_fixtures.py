@@ -706,6 +706,8 @@ def main():
         print("pattern %-22s %-12s %5.1fs" % (p["seed"], p["layout"], p["seconds"]))
     for p in photos:
         print("photo %-22s %5.1fs %s" % (p["name"], p["seconds"], p.get("failure", "")))
+    for p in pats + photos:
+        p.pop("seconds")          # keep builders.json reproducible byte for byte
     out = {"palette": json.loads((WEB / "data" / "levels.json").read_text())["palette"],
            "patterns": pats, "photos": photos, "generator": gens}
     (OUT_DIR / "builders.json").write_text(json.dumps(out, separators=(",", ":")))

@@ -106,6 +106,7 @@ export class BoardCanvas {
     canvas.setAttribute('role', 'img');
     canvas.style.touchAction = 'none';
     canvas.style.display = canvas.style.display || 'block';
+    canvas.style.borderRadius = BoardCanvas.cornerRadius + 'px';
     this._listeners = [];
     this._listen();
     this.setCell(cell);
@@ -224,8 +225,8 @@ export class BoardCanvas {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.setTransform(sx, 0, 0, sy, 0, 0);
     ctx.save();
-    roundedRectPath(ctx, 0, 0, w, h, BoardCanvas.cornerRadius);
-    ctx.clip();
+    // .clipShape(RoundedRectangle(cornerRadius: 12)) is the element's CSS border-radius (set in
+    // the constructor): the browser clips the corners, so no canvas clip mask is needed.
 
     ctx.translate(this.pan.x + w / 2, this.pan.y + h / 2);
     ctx.scale(this.zoom, this.zoom);

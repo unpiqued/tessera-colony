@@ -29,8 +29,13 @@ export class BoardPainter {
     // 1. Mosaic bitmap (tiles + soil), rebuilt ~10x per second at most.
     const img = raster ? raster.image : null;
     if (img) {
-      ctx.imageSmoothingEnabled = !sharp;
-      if (!sharp) ctx.imageSmoothingQuality = 'medium';
+      // Web: when the bitmap lands 1:1 on device pixels (zoom 1, raster built for this scale),
+      // filtering cannot change a pixel, so skip it (cheaper on software-rasterised canvases).
+      const m = ctx.getTransform();
+      const exact = m.b === 0 && m.c === 0 && Math.abs(m.a * size.width / img.width - 1) < 1e-9 &&
+        Math.abs(m.d * size.height / img.height - 1) < 1e-9 && m.e === Math.round(m.e) && m.f === Math.round(m.f);
+      ctx.imageSmoothingEnabled = !sharp && !exact;
+      if (!sharp && !exact) ctx.imageSmoothingQuality = 'medium';
       ctx.drawImage(img, 0, 0, size.width, size.height);
       ctx.imageSmoothingEnabled = true;
     }

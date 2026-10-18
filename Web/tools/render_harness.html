@@ -30,10 +30,12 @@
 <script type="module">
 import { Board } from '../src/core/board.js';
 import { Game } from '../src/core/engine.js';
-import { AntScheduler, AntGeometry } from '../src/render/antScheduler.js';
+import { AntScheduler } from '../src/render/antScheduler.js';
 import { AntSpriteCache } from '../src/render/antRenderer.js';
 import { MosaicRaster } from '../src/render/mosaicRaster.js';
 import { BoardCanvas, computeLayout } from '../src/render/boardCanvas.js';
+import { BoardPainter } from '../src/render/boardPainter.js';
+import { AntRenderer } from '../src/render/antRenderer.js';
 import { GroundPresets } from '../src/render/theme.js';
 
 const data = await (await fetch('../data/levels.json')).json();
@@ -46,8 +48,13 @@ class HarnessController {
     this.board = new Board(level.art);
     this.palette = palette;
     this.game = new Game(level, this.board, opts.capacity ?? level.chambersExpert);
-    this.scheduler = new AntScheduler(this.board, palette);
-    this.scheduler.style = opts.style ?? 'randomTeam';
+    this.mainScheduler = new AntScheduler(this.board, palette);
+    this.mainScheduler.style = opts.style ?? 'randomTeam';
+    // a resumed game: the first `restore` moves are replayed and their tiles are already home
+    for (let k = 0; k < (opts.restore ?? 0); k++) this.mainScheduler.completeInstantly(this.game.dispatch(level.solution[k]));
+    /** Stress test only: a second colony whose trips are drawn on the same board. */
+    this.extra = null;
+    this.mergedTrips = { trips: [] };
     this.sprites = new AntSpriteCache();
     this.raster = null;
     this.groundColor = opts.ground ?? data.palette.soil;
@@ -62,6 +69,19 @@ class HarnessController {
     this.onChange = () => {};
   }
   get claimedCount() { return this.game.state.cleared; }
+  /** What BoardCanvas reads: the real scheduler, or (stress test) both colonies' trips merged at 10 Hz. */
+  get scheduler() { return this.extra ? this.mergedTrips : this.mainScheduler; }
+  addColony(restore, sends, style) {
+    const game = new Game(this.level, this.board, 99);
+    const sch = new AntScheduler(this.board, palette);
+    sch.style = style;
+    for (let k = 0; k < restore; k++) sch.completeInstantly(game.dispatch(this.level.solution[k]));
+    for (let k = 0; k < sends; k++) sch.schedule(game.dispatch(this.level.solution[restore + k]), restore + k, this.now + 0.04);
+    this.extra = sch;
+    this.mergedTrips = { trips: this.mainScheduler.trips.concat(sch.trips) };
+    this.animating = true;
+    this.onChange();
+  }
   gameTime(ms) { return this.anchorTime + (ms - this.anchorMs) / 1000 * this.speed; }
   get now() { return this.gameTime(performance.now()); }
   setSpeed(s) {
@@ -74,11 +94,11 @@ class HarnessController {
     if (this.raster && this.raster.cellPx === cellPx) return;
     const t = this.now;
     const open = this.board.initialOpen();
-    for (let i = 0; i < this.board.count; i++) if (this.board.family[i] >= 0) open[i] = this.scheduler.liftTime[i] <= t ? 1 : 0;
+    for (let i = 0; i < this.board.count; i++) if (this.board.family[i] >= 0) open[i] = this.mainScheduler.liftTime[i] <= t ? 1 : 0;
     this.raster = new MosaicRaster(this.board, palette, cellPx, open, this.groundColor);
   }
   occupied(t) {
-    const occ = new Set(this.scheduler.busyTeams(t).keys());
+    const occ = new Set(this.mainScheduler.busyTeams(t).keys());
     for (const c of this.game.state.chambers) occ.add(c.uid);
     return occ.size;
   }
@@ -87,7 +107,7 @@ class HarnessController {
     if (!this.game.canDispatch(q)) return false;
     if (!ignoreSlots && this.occupied(this.now) >= this.game.state.capacity) return false;
     const ev = this.game.dispatch(q);
-    this.scheduler.schedule(ev, this.game.moves.length - 1, this.now + 0.04);
+    this.mainScheduler.schedule(ev, this.game.moves.length - 1, this.now + 0.04);
     this.animating = true;
     this.onChange();
     return true;
@@ -95,8 +115,8 @@ class HarnessController {
   undo() {
     const claims = this.game.undo();
     if (!claims) return;
-    this.scheduler.undo(claims, this.game.moves.length);
-    this.raster?.sync(this.scheduler.liftTime, this.now);
+    this.mainScheduler.undo(claims, this.game.moves.length);
+    this.raster?.sync(this.mainScheduler.liftTime, this.now);
     this.animating = true;
     this.onChange();
   }
@@ -112,9 +132,13 @@ class HarnessController {
   /** GameController.tick (the drawing-related parts), 10 Hz. */
   tick() {
     const t = this.now;
-    this.raster?.sync(this.scheduler.liftTime, t);
-    this.scheduler.prune(t - 0.5);
-    const want = this.scheduler.isBusy || this.scout != null;
+    this.raster?.sync(this.mainScheduler.liftTime, t);
+    this.mainScheduler.prune(t - 0.5);
+    if (this.extra) {
+      this.extra.prune(t - 0.5);
+      this.mergedTrips = { trips: this.mainScheduler.trips.concat(this.extra.trips) };
+    }
+    const want = this.mainScheduler.isBusy || (this.extra && this.extra.isBusy) || this.scout != null;
     if (want !== this.animating) { this.animating = want; this.onChange(); }
   }
   visibleCount(t = this.now) {
@@ -191,8 +215,9 @@ window.harness = {
     return sent;
   },
   undo() { controller.undo(); },
+  addColony(restore, sends, style = 'randomAnt') { controller.addColony(restore, sends, style); },
   setSpeed(s) { controller.setSpeed(s); },
-  setStyle(s) { controller.scheduler.style = s; },
+  setStyle(s) { controller.mainScheduler.style = s; },
   setDetailed(on) { controller.detailedAnts = on; view.invalidate(); },
   setZoom(z, x = 0, y = 0) { view.setZoom(z, { x, y }); },
   scout(q) { controller.beginScout(q); },
@@ -240,6 +265,8 @@ window.harness = {
     } catch (e) { return String(e); }
   },
 };
+/** For profiling experiments (static methods can be swapped out from the test driver). */
+window.renderModules = { BoardPainter, AntRenderer, AntSpriteCache, MosaicRaster, BoardCanvas };
 window.addEventListener('resize', () => { if (view) layout(); });
 window.harnessReady = true;
 </script>

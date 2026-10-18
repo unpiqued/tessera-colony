@@ -493,6 +493,21 @@ test('a sound requested just after a gesture resume is scheduled, not lost', () 
   clock.t += 1;                            // the resume never finished: give up scheduling
   sb.play(SoundCue.hint);
   assert.equal(started(trace).length, 1);
+  // when that resume finally lands (much later, e.g. at the next tap), the old sound is dropped
+  ctx.state = 'running';
+  ctx.browserSets('running');
+  assert.ok(sounds(ctx).every(x => x.stopped), 'no stale burst after a late resume');
+  // a prompt resume keeps what was queued in the meantime
+  const c2 = fakeContext(clock, { state: 'suspended' });
+  c2.resume = () => { c2.resumeCalls += 1; return new Promise(() => {}); };
+  const t2 = [];
+  const b2 = new SoundBoard({ now: () => clock.t, createContext: () => c2, scheduleLead: 0, trace: t2 });
+  b2._install(all);
+  b2.unlock();
+  b2.play(SoundCue.send, 0.1);
+  clock.t += 0.02;
+  c2.browserSets('running');
+  assert.equal(sounds(c2).filter(x => !x.stopped).length, 1);
 });
 
 test('volume and Silent mode: master gain, navigator.audioSession playback / ambient', () => {

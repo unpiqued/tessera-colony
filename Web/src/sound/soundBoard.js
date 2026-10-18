@@ -103,6 +103,25 @@ export class SoundSynth {
 
   static samples(seconds) { return Math.trunc(seconds * SoundSynth.rate); }
 
+  /**
+   * exp(-t / decay) for t = i / rate, i < n: the same values strike() would compute, shared between
+   * notes that use the same recipe (bit-identical, and about a third less work for the bells).
+   */
+  static _envelope(decay, n) {
+    const cache = SoundSynth._envelopes;
+    const key = `${decay}:${n}`;
+    let env = cache.get(key);
+    if (!env) {
+      const rate = SoundSynth.rate;
+      env = new Float64Array(n);
+      for (let i = 0; i < n; i++) env[i] = Math.exp(-(i / rate) / decay);
+      if (cache.size > 64) cache.clear();
+      cache.set(key, env);
+    }
+    return env;
+  }
+  static _envelopes = new Map();
+
   static strike(freq, partials, length, click = 0, clickDecay = 0.003, seed = 1, attack = 0.002) {
     const rate = SoundSynth.rate;
     const n = SoundSynth.samples(length);
@@ -111,10 +130,11 @@ export class SoundSynth {
       const f = freq * p.ratio;
       if (f >= rate * 0.45) continue;
       const w = 2 * Math.PI * f;
-      const amp = p.amp, decay = p.decay;
+      const amp = p.amp;
+      const env = SoundSynth._envelope(p.decay, n);       // env[i] = exp(-t / decay)
       for (let i = 0; i < n; i++) {
         const t = i / rate;
-        out[i] += amp * Math.exp(-t / decay) * Math.sin(w * t);
+        out[i] += amp * env[i] * Math.sin(w * t);
       }
     }
     if (click > 0) {
@@ -502,6 +522,7 @@ export class SoundBoard {
     this._resumeAt = -100;
     this._clockOffset = null;
     this._clockAt = 0;
+    this._offlineHost0 = 0;
 
     const n = SoundBoard.voiceCount;
     this._busyUntil = new Array(n).fill(0);
@@ -611,7 +632,7 @@ export class SoundBoard {
     const now = this._now();
     const last = this._lastCue[cue];
     if (last !== undefined && now - last < 0.09) return;
-    if (this._start(cue, info.gain, 0, delay, false)) this._lastCue[cue] = now;
+    if (this._start(cue, info.gain, 0, delay, false, SoundBoard.maxDelay, now)) this._lastCue[cue] = now;
   }
 
   /**
@@ -633,25 +654,27 @@ export class SoundBoard {
   /** An ant lifts a tile of colour `family`; `pan` is -1 (left) ... 1 (right). */
   tile(family, pan, delay) {
     if (!this._isOn || !this._tileClicks) return;
-    const at = this._now() + Math.max(0, delay);
+    const now = this._now();
+    const at = now + Math.max(0, delay);
     if (at - this._lastTile < 0.05) return;
     this._counter += 1;
     const nf = SoundSynth.tileFamilies;
     const f = (((family | 0) % nf) + nf) % nf;
     const key = `tile_${f}_${this._counter % SoundSynth.variants}`;
     if (!this._samples || !this._samples[key]) return;
-    if (this._start(key, SoundBoard.tileGain, pan, delay, true)) this._lastTile = at;
+    if (this._start(key, SoundBoard.tileGain, pan, delay, true, SoundBoard.maxDelay, now)) this._lastTile = at;
   }
 
   /** An ant drops its tile in the nest. */
   deliver(pan, delay) {
     if (!this._isOn || !this._tileClicks) return;
-    const at = this._now() + Math.max(0, delay);
+    const now = this._now();
+    const at = now + Math.max(0, delay);
     if (at - this._lastDeliver < 0.08) return;
     this._counter += 1;
     const key = `deliver_${this._counter % SoundSynth.variants}`;
     if (!this._samples || !this._samples[key]) return;
-    if (this._start(key, SoundBoard.deliverGain, pan, delay, true)) this._lastDeliver = at;
+    if (this._start(key, SoundBoard.deliverGain, pan, delay, true, SoundBoard.maxDelay, now)) this._lastDeliver = at;
   }
 
   /**
@@ -743,12 +766,16 @@ export class SoundBoard {
 
   // MARK: engine
 
-  _start(key, gain, pan, delay, click, maxDelay = SoundBoard.maxDelay) {
+  /**
+   * Starts `key` on a free voice. `now` is the host time the caller throttled with, so the
+   * throttle and the start time use one clock reading (Swift reads the host clock twice; with
+   * performance.now() coarsened to 0.1-1 ms in browsers that would shift clinks by a step).
+   */
+  _start(key, gain, pan, delay, click, maxDelay = SoundBoard.maxDelay, now = this._now()) {
     if (!this._ensureRunning()) {
       if (this.trace) this.trace.push({ key, failed: 'not running' });
       return false;
     }
-    const now = this._now();
     let k = -1;
     for (let i = 0; i < this._busyUntil.length; i++) {
       if (this._busyUntil[i] <= now) { k = i; break; }
@@ -797,7 +824,7 @@ export class SoundBoard {
     this._voiceIsClick[k] = click;
     this._voiceNode[k] = src;
     this._startedCount += 1;
-    if (this.trace) this.trace.push({ key, at: now + d, when, gain, pan: p, click, voice: k });
+    if (this.trace) this.trace.push({ key, at: now + d, when, ctxTime: ctx.currentTime, gain, pan: p, click, voice: k });
     return true;
   }
 
@@ -852,9 +879,13 @@ export class SoundBoard {
     this._lead = this._leadOption !== undefined ? this._leadOption
       : this._offline ? 0 : Math.min(0.05, Math.max(0.01, 2 * base));
     this._clockOffset = null;
+    this._offlineHost0 = this._now();
     const onState = () => {
       this._clockOffset = null;
       if (ctx.state === 'running') {
+        // sounds queued while a resume was pending are stale if it took long (e.g. unlock() was
+        // called outside a gesture and the context only started at the next tap)
+        if (this._resumePending && this._now() - this._resumeAt > 0.5) this._stopAll();
         this._resumePending = false;
       } else if (!this._resumePending) {
         // suspended / interrupted / closed by the browser: queued sounds would burst out stale later
@@ -931,7 +962,8 @@ export class SoundBoard {
    */
   _contextTime(hostNow) {
     const ctx = this._ctx;
-    if (this._offline) return ctx.currentTime;
+    // offline rendering: the context timeline starts at the host time of unlock()
+    if (this._offline) return ctx.currentTime + Math.max(0, hostNow - this._offlineHost0);
     const sample = ctx.currentTime - hostNow;
     let off = this._clockOffset;
     if (off === null) {

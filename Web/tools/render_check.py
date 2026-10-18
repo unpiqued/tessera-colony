@@ -81,7 +81,7 @@ def main():
         time.sleep(0.4)
         page.screenshot(path=str(OUT / "first_dig_zoom.png"))
         page.evaluate("harness.setZoom(1)")
-        page.evaluate("harness.scout(0)")
+        page.evaluate("harness.scout(1)")
         time.sleep(0.3)
         page.screenshot(path=str(OUT / "first_dig_scout.png"))
         page.evaluate("harness.endScout(); harness.setBlocked(true)")
@@ -94,31 +94,53 @@ def main():
         time.sleep(6.0)
         page.screenshot(path=str(OUT / "koi_pond_scout.png"))
 
-        # 3. Sunflower (6,048 tiles): send teams until a few hundred ants are walking, then measure.
-        report["sunflower"] = page.evaluate("harness.load('sunflower', {style: 'randomTeam', capacity: 12})")
+        # 3. Sunflower (6,048 tiles), resumed half-way so routes are long: send 12 teams at once and let
+        #    the hole release ants until as many walk as the game allows (one ant per 0.18 s).
+        report["sunflower"] = page.evaluate("harness.load('sunflower', {style: 'randomTeam', capacity: 14, restore: 30})")
         page.evaluate("harness.sendNow(12, true)")
         page.evaluate("harness.setSpeed(6)")
-        t0 = time.time()
-        while time.time() - t0 < 40:
-            info = page.evaluate("harness.info()")
-            if info["visible"] >= 330:
-                break
-            time.sleep(0.5)
+
+        def wait_visible(target, limit):
+            t0 = time.time()
+            best = 0
+            while time.time() - t0 < limit:
+                v = page.evaluate("harness.info()")["visible"]
+                best = max(best, v)
+                if v >= target:
+                    break
+                time.sleep(0.25)
+            return best
+
+        report["sunflower_peak_visible"] = wait_visible(10_000, 9.0)
         page.evaluate("harness.setSpeed(1)")
         report["sunflower_busy"] = page.evaluate("harness.info()")
         perf = {}
         page.evaluate("harness.setDetailed(true)")
-        perf["detailed_on"] = page.evaluate("harness.measure(5000)")
+        perf["game_busiest_detailed_on"] = page.evaluate("harness.measure(5000)")
         page.screenshot(path=str(OUT / "sunflower_busy.png"))
         page.evaluate("harness.setDetailed(false)")
-        perf["detailed_off"] = page.evaluate("harness.measure(5000)")
+        perf["game_busiest_detailed_off"] = page.evaluate("harness.measure(5000)")
         page.evaluate("harness.setDetailed(true)")
-        page.evaluate("harness.setZoom(2.5, 0, -700)")
-        perf["zoom_2_5x_detailed"] = page.evaluate("harness.measure(4000)")
+        # Stress: a second colony's ants drawn on the same board (not a game state) to reach ~300.
+        page.evaluate("harness.addColony(14, 5, 'randomAnt')")
+        page.evaluate("harness.setSpeed(6)")
+        wait_visible(300, 10.0)
+        page.evaluate("harness.setSpeed(0.5)")
+        perf["stress_300_detailed_on"] = page.evaluate("harness.measure(5000)")
+        page.screenshot(path=str(OUT / "sunflower_stress.png"))
+        page.evaluate("harness.setDetailed(false)")
+        perf["stress_300_detailed_off"] = page.evaluate("harness.measure(5000)")
+        page.evaluate("harness.setDetailed(true)")
+        page.evaluate("harness.setZoom(2.5, 0, -600)")
+        perf["stress_zoom_2_5x_detailed"] = page.evaluate("harness.measure(4000)")
         page.screenshot(path=str(OUT / "sunflower_zoom.png"))
         page.evaluate("harness.setZoom(1)")
-        perf["drawLoop_detailed"] = page.evaluate("harness.drawLoop(120, false)")
-        perf["drawLoop_detailed_flush"] = page.evaluate("harness.drawLoop(60, true)")
+        perf["stress_drawLoop_detailed"] = page.evaluate("harness.drawLoop(120, false)")
+        perf["stress_drawLoop_detailed_flush"] = page.evaluate("harness.drawLoop(60, true)")
+        page.evaluate("harness.setSpeed(6)")
+        wait_visible(10_000, 6.0)
+        page.evaluate("harness.setSpeed(0.5)")
+        perf["stress_over_320_detailed_setting_on"] = page.evaluate("harness.measure(4000)")
         report["perf"] = perf
         report["sunflower_end"] = page.evaluate("harness.info()")
         browser.close()

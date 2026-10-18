@@ -59,14 +59,17 @@ export function targetSize(width, height, maxSide = PHOTO_MAX_SIDE) {
 export function pixelsFromImage(source, naturalWidth, naturalHeight, maxSide = PHOTO_MAX_SIDE) {
   if (!(naturalWidth > 0 && naturalHeight > 0)) return null;
   const { width, height } = targetSize(naturalWidth, naturalHeight, maxSide);
-  let canvas;
-  if (typeof OffscreenCanvas !== 'undefined') canvas = new OffscreenCanvas(width, height);
-  else if (typeof document !== 'undefined') {
-    canvas = document.createElement('canvas');
+  let ctx = null;
+  try {
+    // OffscreenCanvas 2D needs Safari 16.4+; older iPads fall through to a DOM canvas
+    if (typeof OffscreenCanvas !== 'undefined') ctx = new OffscreenCanvas(width, height).getContext('2d', { willReadFrequently: true });
+  } catch { ctx = null; }
+  if (!ctx && typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-  } else return null;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx = canvas.getContext('2d', { willReadFrequently: true });
+  }
   if (!ctx) return null;
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
