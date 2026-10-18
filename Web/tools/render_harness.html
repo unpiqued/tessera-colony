@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Render Harness</title>
+<style>
+  :root { --loam: #1C1511; --panel: #2F241C; --edge: #4A3A2C; --sand: #E9DCC3; --sandDim: #B8A98F; }
+  html, body { margin: 0; height: 100%; background: var(--loam); color: var(--sand);
+    font: 500 14px ui-rounded, system-ui, sans-serif; overflow: hidden; }
+  #screen { position: fixed; inset: 0; display: flex; gap: 16px; padding: 16px; box-sizing: border-box; }
+  #boardArea { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; }
+  #panel { flex: none; background: var(--panel); border: 1px solid var(--edge); border-radius: 16px;
+    padding: 16px; box-sizing: border-box; overflow: hidden; }
+  #panel h1 { font: 600 26px "New York", ui-serif, Georgia, serif; margin: 4px 0 6px; }
+  #panel p { color: var(--sandDim); margin: 4px 0; }
+  #stats { white-space: pre; font: 12px ui-monospace, monospace; color: var(--sandDim); margin-top: 12px; }
+</style>
+</head>
+<body>
+<div id="screen">
+  <div id="boardArea"><canvas id="board"></canvas></div>
+  <div id="panel">
+    <h1 id="title">…</h1>
+    <p id="sub"></p>
+    <p>Render harness: BoardCanvas + a minimal stand-in for GameController (the control panel is not part of this check).</p>
+    <div id="stats"></div>
+  </div>
+</div>
+<script type="module">
+import { Board } from '../src/core/board.js';
+import { Game } from '../src/core/engine.js';
+import { AntScheduler, AntGeometry } from '../src/render/antScheduler.js';
+import { AntSpriteCache } from '../src/render/antRenderer.js';
+import { MosaicRaster } from '../src/render/mosaicRaster.js';
+import { BoardCanvas, computeLayout } from '../src/render/boardCanvas.js';
+import { GroundPresets } from '../src/render/theme.js';
+
+const data = await (await fetch('../data/levels.json')).json();
+const palette = { names: data.palette.names, tones: data.palette.tones };
+
+/** Minimal GameController stand-in: exactly the members BoardCanvas reads, plus send/tick. */
+class HarnessController {
+  constructor(level, opts) {
+    this.level = level;
+    this.board = new Board(level.art);
+    this.palette = palette;
+    this.game = new Game(level, this.board, opts.capacity ?? level.chambersExpert);
+    this.scheduler = new AntScheduler(this.board, palette);
+    this.scheduler.style = opts.style ?? 'randomTeam';
+    this.sprites = new AntSpriteCache();
+    this.raster = null;
+    this.groundColor = opts.ground ?? data.palette.soil;
+    this.detailedAnts = opts.detailed ?? true;
+    this.animating = false;
+    this.scout = null;
+    this.scoutTiles = new Set();
+    this.isBlocked = false;
+    this.speed = opts.speed ?? 1;
+    this.anchorMs = performance.now();
+    this.anchorTime = 0;
+    this.onChange = () => {};
+  }
+  get claimedCount() { return this.game.state.cleared; }
+  gameTime(ms) { return this.anchorTime + (ms - this.anchorMs) / 1000 * this.speed; }
+  get now() { return this.gameTime(performance.now()); }
+  setSpeed(s) {
+    const ms = performance.now();
+    this.anchorTime = this.gameTime(ms);
+    this.anchorMs = ms;
+    this.speed = s;
+  }
+  ensureRaster(cellPx) {
+    if (this.raster && this.raster.cellPx === cellPx) return;
+    const t = this.now;
+    const open = this.board.initialOpen();
+    for (let i = 0; i < this.board.count; i++) if (this.board.family[i] >= 0) open[i] = this.scheduler.liftTime[i] <= t ? 1 : 0;
+    this.raster = new MosaicRaster(this.board, palette, cellPx, open, this.groundColor);
+  }
+  occupied(t) {
+    const occ = new Set(this.scheduler.busyTeams(t).keys());
+    for (const c of this.game.state.chambers) occ.add(c.uid);
+    return occ.size;
+  }
+  /** GameController.dispatch: needs an open slot (waiting teams + teams still collecting). */
+  dispatch(q, ignoreSlots = false) {
+    if (!this.game.canDispatch(q)) return false;
+    if (!ignoreSlots && this.occupied(this.now) >= this.game.state.capacity) return false;
+    const ev = this.game.dispatch(q);
+    this.scheduler.schedule(ev, this.game.moves.length - 1, this.now + 0.04);
+    this.animating = true;
+    this.onChange();
+    return true;
+  }
+  undo() {
+    const claims = this.game.undo();
+    if (!claims) return;
+    this.scheduler.undo(claims, this.game.moves.length);
+    this.raster?.sync(this.scheduler.liftTime, this.now);
+    this.animating = true;
+    this.onChange();
+  }
+  beginScout(q) {
+    const rep = this.game.scout(q);
+    if (!rep) return;
+    this.scout = rep;
+    this.scoutTiles = new Set(rep.ownTiles);
+    this.animating = true;
+    this.onChange();
+  }
+  endScout() { this.scout = null; this.scoutTiles = new Set(); this.onChange(); }
+  /** GameController.tick (the drawing-related parts), 10 Hz. */
+  tick() {
+    const t = this.now;
+    this.raster?.sync(this.scheduler.liftTime, t);
+    this.scheduler.prune(t - 0.5);
+    const want = this.scheduler.isBusy || this.scout != null;
+    if (want !== this.animating) { this.animating = want; this.onChange(); }
+  }
+  visibleCount(t = this.now) {
+    let n = 0;
+    for (const trip of this.scheduler.trips) if (t >= trip.depart && t < trip.home) n += 1;
+    return n;
+  }
+}
+
+const canvas = document.getElementById('board');
+let controller = null;
+let view = null;
+let ticker = 0;
+let autoSend = null;
+const frameLog = { on: false, deltas: [], draws: [], visible: [], last: 0 };
+
+function layout() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const wide = W > H * 1.05;
+  const lay = computeLayout(controller.board, W, H, wide);
+  const panel = document.getElementById('panel');
+  panel.style.width = lay.panelWidth + 'px';
+  document.getElementById('screen').style.flexDirection = wide ? 'row' : 'column';
+  view.setCell(lay.cell);
+  return lay;
+}
+
+window.harness = {
+  levels: Object.keys(data.levels),
+  load(id, opts = {}) {
+    if (ticker) clearInterval(ticker);
+    if (view) view.destroy();
+    const raw = data.levels[id];
+    const level = { ...raw, tunnels: raw.tunnels.map(q => q.map(([family, quota]) => ({ family, quota }))) };
+    controller = new HarnessController(level, opts);
+    document.getElementById('title').textContent = level.title;
+    document.getElementById('sub').textContent = `${level.subtitle} · ${controller.board.tileCount} tiles · ${controller.game.state.capacity} slots`;
+    document.getElementById('screen').style.background = GroundPresets.backdrop(controller.groundColor);
+    view = new BoardCanvas(canvas, controller);
+    controller.onChange = () => view.invalidate();
+    view.onDraw = (ms, ts) => {
+      if (!frameLog.on) return;
+      if (frameLog.last) frameLog.deltas.push(ts - frameLog.last);
+      frameLog.last = ts;
+      frameLog.draws.push(ms);
+      frameLog.visible.push(controller.visibleCount(controller.gameTime(ts)));
+    };
+    const lay = layout();
+    ticker = setInterval(() => {
+      controller.tick();
+      if (autoSend && autoSend.left > 0) {
+        const q = controller.level.solution[controller.game.moves.length];
+        if (q === undefined) autoSend = null;
+        else if (controller.dispatch(q, autoSend.ignoreSlots)) autoSend.left -= 1;
+      }
+      document.getElementById('stats').textContent =
+        `game time ${controller.now.toFixed(1)} s · speed ${controller.speed}×\n` +
+        `moves ${controller.game.moves.length} · claimed ${controller.claimedCount}\n` +
+        `ants out ${controller.scheduler.trips.length} · visible ${controller.visibleCount()}\n` +
+        `cell ${lay.cell} pt · raster ${controller.raster?.cellPx} px/cell · zoom ${view.zoom.toFixed(2)}`;
+    }, 100);
+    view.invalidate();
+    return { cell: lay.cell, cols: controller.board.cols, rows: controller.board.rows, tiles: controller.board.tileCount };
+  },
+  /** Send the next `n` moves of the designed solution, each as soon as a slot is open. */
+  autoSend(n, ignoreSlots = false) { autoSend = { left: n, ignoreSlots }; },
+  sendNow(n, ignoreSlots = true) {
+    let sent = 0;
+    for (let k = 0; k < n; k++) {
+      const q = controller.level.solution[controller.game.moves.length];
+      if (q === undefined || !controller.dispatch(q, ignoreSlots)) break;
+      sent += 1;
+    }
+    return sent;
+  },
+  undo() { controller.undo(); },
+  setSpeed(s) { controller.setSpeed(s); },
+  setStyle(s) { controller.scheduler.style = s; },
+  setDetailed(on) { controller.detailedAnts = on; view.invalidate(); },
+  setZoom(z, x = 0, y = 0) { view.setZoom(z, { x, y }); },
+  scout(q) { controller.beginScout(q); },
+  endScout() { controller.endScout(); },
+  setBlocked(b) { controller.isBlocked = b; view.invalidate(); },
+  info() {
+    const t = controller.now;
+    return { t, trips: controller.scheduler.trips.length, visible: controller.visibleCount(t), moves: controller.game.moves.length,
+      claimed: controller.claimedCount, animating: controller.animating, dpr: window.devicePixelRatio,
+      canvas: [canvas.width, canvas.height], cell: view.cell, rasterPx: controller.raster?.cellPx };
+  },
+  /** Frame statistics over `ms` of real time: rAF deltas and time spent in BoardCanvas.draw. */
+  measure(ms) {
+    frameLog.on = true; frameLog.deltas = []; frameLog.draws = []; frameLog.visible = []; frameLog.last = 0;
+    view.invalidate();
+    return new Promise(res => setTimeout(() => {
+      frameLog.on = false;
+      const st = a => {
+        const s = [...a].sort((x, y) => x - y);
+        const avg = s.reduce((x, y) => x + y, 0) / Math.max(1, s.length);
+        return { n: s.length, avg: +avg.toFixed(3), p50: +(s[Math.floor(s.length * 0.5)] ?? 0).toFixed(3),
+          p95: +(s[Math.min(s.length - 1, Math.floor(s.length * 0.95))] ?? 0).toFixed(3), max: +(s[s.length - 1] ?? 0).toFixed(3) };
+      };
+      res({ frameDelta: st(frameLog.deltas), draw: st(frameLog.draws), visible: st(frameLog.visible) });
+    }, ms));
+  },
+  /** Time `n` back-to-back draw() calls (no rAF), optionally forcing the canvas to finish (1-px readback). */
+  drawLoop(n, flush = false) {
+    const out = [];
+    const ctx = canvas.getContext('2d');
+    for (let k = 0; k < n; k++) {
+      const t0 = performance.now();
+      view.draw(performance.now());
+      if (flush) ctx.getImageData(0, 0, 1, 1);
+      out.push(performance.now() - t0);
+    }
+    out.sort((a, b) => a - b);
+    return { avg: out.reduce((a, b) => a + b, 0) / n, p95: out[Math.floor(n * 0.95)], visible: controller.visibleCount() };
+  },
+  webgl() {
+    try {
+      const gl = document.createElement('canvas').getContext('webgl');
+      const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      return gl ? (ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : 'none';
+    } catch (e) { return String(e); }
+  },
+};
+window.addEventListener('resize', () => { if (view) layout(); });
+window.harnessReady = true;
+</script>
+</body>
+</html>

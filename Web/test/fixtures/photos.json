@@ -1,0 +1,26 @@
+{
+ "flower": {
+  "width": 300,
+  "height": 400
+ },
+ "blocks": {
+  "width": 160,
+  "height": 120
+ },
+ "white": {
+  "width": 64,
+  "height": 48
+ },
+ "speck": {
+  "width": 200,
+  "height": 150
+ },
+ "landscape": {
+  "width": 720,
+  "height": 540
+ },
+ "bokeh": {
+  "width": 720,
+  "height": 720
+ }
+}

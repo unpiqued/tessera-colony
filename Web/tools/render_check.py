@@ -1,0 +1,134 @@
+"""Browser check of the board renderer (BoardCanvas) with headless Chromium (Python Playwright).
+
+    python3 tools/render_check.py            (from Web/; writes test-output/*.png and test-output/render_perf.json)
+
+Serves Web/ on 127.0.0.1, opens tools/render_harness.html at iPad size (1180x820 CSS px, device scale 2),
+plays the designed solution's first moves, takes screenshots, and measures frame times on the 6,048-tile
+"sunflower" showcase with a few hundred ants walking (detailed legs on and off).
+"""
+import functools
+import http.server
+import json
+import pathlib
+import platform
+import subprocess
+import sys
+import threading
+import time
+
+from playwright.sync_api import sync_playwright
+
+WEB = pathlib.Path(__file__).resolve().parents[1]
+OUT = WEB / "test-output"
+
+
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+
+def serve():
+    handler = functools.partial(QuietHandler, directory=str(WEB))
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def cpu_info():
+    model = "?"
+    try:
+        for line in open("/proc/cpuinfo"):
+            if line.startswith("model name"):
+                model = line.split(":", 1)[1].strip()
+                break
+    except OSError:
+        pass
+    nproc = subprocess.run(["nproc"], capture_output=True, text=True).stdout.strip()
+    return {"model": model, "nproc": nproc, "platform": platform.platform()}
+
+
+def main():
+    OUT.mkdir(exist_ok=True)
+    srv = serve()
+    url = "http://127.0.0.1:%d/tools/render_harness.html" % srv.server_address[1]
+    report = {"cpu": cpu_info()}
+    errors = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context(viewport={"width": 1180, "height": 820}, device_scale_factor=2)
+        page = ctx.new_page()
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(url)
+        page.wait_for_function("window.harnessReady === true", timeout=20000)
+        report["userAgent"] = page.evaluate("navigator.userAgent")
+        report["webgl"] = page.evaluate("harness.webgl()")
+
+        # 1. First Dig: the designed solution's first moves, sent as slots open (as a player would).
+        report["firstDig"] = page.evaluate("harness.load('firstDig', {style: 'randomTeam'})")
+        page.screenshot(path=str(OUT / "first_dig_start.png"))
+        page.evaluate("harness.autoSend(5)")
+        time.sleep(4.0)
+        page.screenshot(path=str(OUT / "first_dig_4s.png"))
+        time.sleep(5.0)
+        report["firstDig_9s"] = page.evaluate("harness.info()")
+        page.screenshot(path=str(OUT / "first_dig_9s.png"))
+        page.evaluate("harness.setZoom(3.2, 0, -330)")
+        time.sleep(0.4)
+        page.screenshot(path=str(OUT / "first_dig_zoom.png"))
+        page.evaluate("harness.setZoom(1)")
+        page.evaluate("harness.scout(0)")
+        time.sleep(0.3)
+        page.screenshot(path=str(OUT / "first_dig_scout.png"))
+        page.evaluate("harness.endScout(); harness.setBlocked(true)")
+        time.sleep(0.2)
+        page.screenshot(path=str(OUT / "first_dig_blocked.png"))
+
+        # 2. Koi Pond with scout trails.
+        page.evaluate("harness.load('koiPond', {style: 'scout'})")
+        page.evaluate("harness.autoSend(3)")
+        time.sleep(6.0)
+        page.screenshot(path=str(OUT / "koi_pond_scout.png"))
+
+        # 3. Sunflower (6,048 tiles): send teams until a few hundred ants are walking, then measure.
+        report["sunflower"] = page.evaluate("harness.load('sunflower', {style: 'randomTeam', capacity: 12})")
+        page.evaluate("harness.sendNow(12, true)")
+        page.evaluate("harness.setSpeed(6)")
+        t0 = time.time()
+        while time.time() - t0 < 40:
+            info = page.evaluate("harness.info()")
+            if info["visible"] >= 330:
+                break
+            time.sleep(0.5)
+        page.evaluate("harness.setSpeed(1)")
+        report["sunflower_busy"] = page.evaluate("harness.info()")
+        perf = {}
+        page.evaluate("harness.setDetailed(true)")
+        perf["detailed_on"] = page.evaluate("harness.measure(5000)")
+        page.screenshot(path=str(OUT / "sunflower_busy.png"))
+        page.evaluate("harness.setDetailed(false)")
+        perf["detailed_off"] = page.evaluate("harness.measure(5000)")
+        page.evaluate("harness.setDetailed(true)")
+        page.evaluate("harness.setZoom(2.5, 0, -700)")
+        perf["zoom_2_5x_detailed"] = page.evaluate("harness.measure(4000)")
+        page.screenshot(path=str(OUT / "sunflower_zoom.png"))
+        page.evaluate("harness.setZoom(1)")
+        perf["drawLoop_detailed"] = page.evaluate("harness.drawLoop(120, false)")
+        perf["drawLoop_detailed_flush"] = page.evaluate("harness.drawLoop(60, true)")
+        report["perf"] = perf
+        report["sunflower_end"] = page.evaluate("harness.info()")
+        browser.close()
+    srv.shutdown()
+    report["errors"] = errors
+    (OUT / "render_perf.json").write_text(json.dumps(report, indent=2))
+    print(json.dumps(report, indent=2))
+    if errors:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
