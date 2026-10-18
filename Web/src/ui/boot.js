@@ -49,6 +49,8 @@ async function decodePhoto(file) {
   }
 }
 
+const ACCOUNT_SYNC = false;
+
 export function bootApp(rerender) {
   const dataEl = document.getElementById('tc-levels');
   setLevelData(JSON.parse(dataEl.textContent));
@@ -77,11 +79,15 @@ export function bootApp(rerender) {
   app.subscribe(rerender);
   wireApp(app, rerender);
   storage.onStatus(rerender);
-  storage.connect(() => {
-    // Newer progress arrived from the viewer's account: reload it unless a game is open.
-    const reload = () => { app._reloadFromStore(); rerender(); };
-    if (!app.current && !app.versus) reload(); else app._reloadPending = reload;
-  });
+  // Account sync (the `db` capability) is switched off: the viewer then asks signed-out visitors
+  // to sign in with a bar the page can't dismiss. Progress is kept in this browser instead.
+  if (ACCOUNT_SYNC) {
+    storage.connect(() => {
+      // Newer progress arrived from the viewer's account: reload it unless a game is open.
+      const reload = () => { app._reloadFromStore(); rerender(); };
+      if (!app.current && !app.versus) reload(); else app._reloadPending = reload;
+    });
+  }
   document.addEventListener('visibilitychange', () => { try { sound.setHidden(document.visibilityState === 'hidden'); } catch (e) { /* none */ } });
   return app;
 }
@@ -99,7 +105,7 @@ function wireApp(app, rerender) {
   app.storageNote = () => app.storage.where === 'account'
     ? 'Your progress, saved games and high scores are kept in your Claude account, private to you, so they follow you to other devices.'
     : app.storage.where === 'local'
-      ? 'Your progress is saved in this browser on this device. Sign in to Claude to keep it with your account.'
+      ? 'Your progress, saved games and high scores are kept in this browser on this device.'
       : 'This browser is not letting the page save, so progress lasts only until you close it.';
   app._reloadFromStore = () => {
     app._settings = SaveStore.loadSettings();
