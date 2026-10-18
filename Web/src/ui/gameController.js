@@ -246,7 +246,7 @@ export class GameController {
   // MARK: - Raster
 
   ensureRaster(cellPx) {
-    if (this.raster && this.raster.cellPx === cellPx) return this.raster;
+    if (this.raster && this.raster.cellPx === Math.max(3, cellPx | 0)) return this.raster;
     const t = this.now;
     const b = this.board;
     const open = b.initialOpen();
@@ -493,6 +493,7 @@ export class GameController {
     this.slotOwners = [];
     this.clock = new GameClock();
     this.clock.set(this.speed, nowMs());
+    this.lastTickMs = nowMs();
     this.soundCursor = 0;
     this.milestone = 0;
     this.familyLeft = [];
@@ -540,7 +541,18 @@ export class GameController {
     this.changed();
     const b = this.board, tunnels = this.game.tunnels, st = this.game.state, mv = this.game.moves.slice(), sol = this.level.solution;
     const stale = () => this.game.state !== st;
-    const done = r => { if (stale()) { this.hintBusy = false; this.changed(); return; } this.applyHint(r); };
+    const done = r => {
+      if (this.app && this.app.current !== this) return;           // the player left this game
+      if (stale()) {
+        // the board changed while the hint was being worked out: it doesn't count
+        this.hintBusy = false;
+        this.hintsUsed = Math.max(0, this.hintsUsed - 1);
+        this.save();
+        this.changed();
+        return;
+      }
+      this.applyHint(r);
+    };
     if (this.app && this.app.runHint) {
       // off the main thread (the search can take seconds off the designed line)
       this.app.runHint(this.level, tunnels, st, mv, sol).then(done, () => done(HintSolver.hint(b, tunnels, st, mv, sol)));

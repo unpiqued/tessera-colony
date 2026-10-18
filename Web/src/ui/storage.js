@@ -84,7 +84,8 @@ export function createStorage() {
         } catch (e) {
           const code = e && e.code;
           if (code === 'resource_exhausted' || code === 'unavailable') { pending.set(key, true); }
-          else if (code === 'invalid_argument' || code === 'revoked' || code === 'quota_exceeded' || code === 'not_granted') {
+          else if (code === 'invalid_argument') { /* this value can't be stored (too large?): keep it local */ }
+          else if (code === 'revoked' || code === 'quota_exceeded' || code === 'not_granted') {
             remote = null; remoteState = ls ? 'local' : 'memory'; break;
           }
         }
@@ -124,7 +125,7 @@ export function createStorage() {
       if (!user || !db) return;
       const id = await user.id();
       if (!id) return;
-      const col = db.collection('data/users/' + id + '/kv');
+      const col = db.collection('data/users/' + id);   // the viewer's own collection (3 segments)
       const snap = await col.limit(1000).get();
       let changed = false;
       const seen = new Set();

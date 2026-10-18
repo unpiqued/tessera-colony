@@ -216,6 +216,10 @@ export class BoardCanvas {
   draw(nowMs = performance.now()) {
     const t0 = performance.now();
     this._resize(false);
+    // Unzoomed, a one-finger vertical drag scrolls the page (the phone layout puts the controls
+    // below the board); zoomed in, every drag pans the board.
+    const ta = this.zoom > 1.01 ? 'none' : 'pan-y';
+    if (this._touchAction !== ta) { this._touchAction = ta; this.canvas.style.touchAction = ta; }
     if (this._resetAnim) {
       const a = this._resetAnim;
       const e = easeOut((nowMs - a.start) / 250);
@@ -446,6 +450,7 @@ export class VersusBoardCanvas extends BoardCanvas {
 
   constructor(canvas, source, index) {
     super(canvas, source, 8);
+    canvas.style.touchAction = 'manipulation';   // no gestures here: let the page scroll
     this.index = index;
     this.setCell(this.cell);
   }

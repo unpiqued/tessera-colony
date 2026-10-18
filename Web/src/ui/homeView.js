@@ -21,6 +21,7 @@ export function homeView(ctx) {
   const wide = size.w > 700;
   const filtering = app.settings.ratingFilter !== 'all' || app.settings.statusFilter !== 'all';
   const shownCount = filtering ? app.allLevels.filter(l => app.isPlayable(l) && app.passesFilter(l)).length : 0;
+  for (const r of app.photoLevels) app.measureIfNeeded(r.level);   // filters need every rating (HomeView.onAppear)
   const mine = app.photoLevels.map(r => r.level).filter(l => app.passesFilter(l));
   return h('div', { class: 'home', key: 'home', ref: el => { ui.homeScroller = el; } },
     h('main', { class: 'home-inner' },
@@ -258,9 +259,9 @@ function makeNewSection(ctx, wide) {
         h('div', { class: 'row title', style: { fontSize: '20px' } }, h('span', { class: 'brass' }, icon('photo.on.rectangle.angled', 20)), 'From your photo'),
         h('div', { class: 'dim', style: { fontSize: '14px' } }, 'White and near-white areas become open ground; every coloured tile is part of the puzzle. The photo stays on this device.'),
         segmented(PhotoDetails, app.settings.photoDetail, v => app.updateSettings(s => { s.photoDetail = v; }), 'Tile size'),
-        h('label', { class: ['pill', 'prominent'], style: { alignSelf: 'flex-start', opacity: app.photoBusy ? 0.45 : 1 } },
-          icon('photo', 16), app.photoBusy ? 'Building…' : 'Choose a photo',
-          h('input', { id: 'photo-input', type: 'file', accept: 'image/*', disabled: app.photoBusy, style: { display: 'none' },
+        h('div', null,
+          pill(app.photoBusy ? 'Building…' : 'Choose a photo', () => { const el = document.getElementById('photo-input'); if (el) el.click(); }, { prominent: true, icon: 'photo', disabled: app.photoBusy }),
+          h('input', { id: 'photo-input', type: 'file', accept: 'image/*', tabindex: '-1', 'aria-hidden': 'true', style: { display: 'none' },
             onchange: e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) app.importPhotoFile(f); } })))),
     app.photoBusy ? h('div', { class: 'row dim', style: { fontSize: '13px' } }, spinner(), 'Planning teams and tunnels…') : null,
     app.photoMessage ? h('div', { class: 'raised row top', style: { padding: '12px' } },

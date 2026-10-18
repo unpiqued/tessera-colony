@@ -12,7 +12,7 @@ import { pixelsFromImage } from '../builders/photoLevelBuilder.js';
 import { GameController } from './gameController.js';
 import { VersusController } from './versusController.js';
 import { createStorage } from './storage.js';
-import { thumbURL, forgetThumb } from './compat.js';
+import { thumbURL, forgetThumb, setThumbRerender } from './compat.js';
 
 /** Plain level objects from the worker → LevelDefinition (palette methods, chambers(), counts). */
 function toLevelDefinition(plain) {
@@ -63,7 +63,7 @@ export function bootApp(rerender) {
     makeGameController: (level, d, mods, a, resume) => new GameController(level, d, mods, a, resume, rerender),
     makeVersusController: (level, rules, a) => new VersusController(level, rules, a, rerender),
     soundBoard: sound,
-    thumbnail: level => thumbURL(level),
+    thumbnail: level => thumbURL(level, true),
     measureDifficulty: level => builder.run('probe', { level }).then(r => (r && r.stats ? new DifficultyStats(r.stats.careless, r.stats.greedy) : null)),
     buildPatternLevel: (seed, number) => builder.run('pattern', { seed, number }).then(r => toLevelDefinition(r.level)),
     photoPixels: data => data,   // importPhotoFile decodes the file first
@@ -73,6 +73,7 @@ export function bootApp(rerender) {
       return { kind: 'failure', error: { message: (res.error && res.error.message) || "The colony couldn't plan a solvable puzzle for this photo. Try a different detail level." } };
     }),
   };
+  setThumbRerender(rerender);
   const app = new AppModel(hooks);
   app.builder = builder;
   app.storage = storage;
@@ -88,7 +89,10 @@ export function bootApp(rerender) {
       if (!app.current && !app.versus) reload(); else app._reloadPending = reload;
     });
   }
-  document.addEventListener('visibilitychange', () => { try { sound.setHidden(document.visibilityState === 'hidden'); } catch (e) { /* none */ } });
+  document.addEventListener('visibilitychange', () => {
+    try { sound.setHidden(document.visibilityState === 'hidden'); } catch (e) { /* none */ }
+    if (document.visibilityState === 'hidden') storage.flushNow();
+  });
   return app;
 }
 
@@ -113,6 +117,19 @@ function wireApp(app, rerender) {
     app._progress = SaveStore.loadProgress();
     app._highScores = SaveStore.loadHighScores();
     app._applySound();
+  };
+  const destroyBoard = () => {
+    const c = app.current;
+    if (c && c.boardCanvas) { try { c.boardCanvas.destroy(); } catch (e) { /* gone */ } c.boardCanvas = null; }
+  };
+  const play = app.play.bind(app);
+  app.play = (...args) => { destroyBoard(); play(...args); };
+  const startVersus = app.startVersus.bind(app);
+  app.startVersus = (...args) => {
+    destroyBoard();
+    const v = app.versus;
+    if (v && v.boardCanvases) for (const bc of v.boardCanvases) { try { if (bc) bc.destroy(); } catch (e) { /* gone */ } }
+    startVersus(...args);
   };
   const goHome = app.goHome.bind(app);
   app.goHome = () => {

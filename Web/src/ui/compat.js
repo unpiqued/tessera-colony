@@ -3,7 +3,7 @@
 import { Game } from '../core/engine.js';
 import { Board } from '../core/board.js';
 import { setLevelData } from '../core/levelData.js';
-import { LevelCatalog, Difficulty, GeneratedPalette, LevelPalette, LevelDefinition, DifficultyStats } from '../core/level.js';
+import { LevelCatalog, Difficulty, GeneratedPalette, LevelPalette, LevelDefinition, DifficultyStats, swiftRounded } from '../core/level.js';
 import { ChallengeModifier, ScoreRules, ColourRule, HighScoreEntry, HighScoreKind, RatingFilter, TimeText } from '../core/scoring.js';
 import { StatusFilter } from '../core/collection.js';
 import { SaveStore, SaveGame } from '../core/saveStore.js';
@@ -20,7 +20,7 @@ import { PhotoDetail } from '../builders/photoLevelBuilder.js';
 import { PACK_BLURBS } from './text.js';
 
 export {
-  Game, DifficultyStats, LevelDefinition, LevelPalette, LevelCatalog, ChallengeModifier, ScoreRules, ColourRule, TimeText, SaveStore, VersusMatch, VersusRules,
+  swiftRounded, Game, DifficultyStats, LevelDefinition, LevelPalette, LevelCatalog, ChallengeModifier, ScoreRules, ColourRule, TimeText, SaveStore, VersusMatch, VersusRules,
   AntScheduler, MosaicRaster, BoardCanvas, VersusBoardCanvas, GroundPresets, SoundBoard,
 };
 
@@ -109,14 +109,35 @@ export function canvasDataURL(c) {
   return el.toDataURL();
 }
 
+// Built lazily, a few at a time between frames, so Home (and the two-player mosaic list) never
+// spends half a second drawing every picture at once; a card shows an empty frame until its turn.
 const thumbs = new Map();
-export function thumbURL(level) {
-  let u = thumbs.get(level.id);
-  if (u) return u;
-  const canvas = MosaicRaster.miniature(new Board(level.art), level.palette, () => true);
-  u = canvasDataURL(canvas);
-  thumbs.set(level.id, u);
-  return u;
+const thumbQueue = new Map();
+let thumbTimer = null;
+let thumbRerender = null;
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+function makeThumb(level) {
+  return canvasDataURL(MosaicRaster.miniature(new Board(level.art), level.palette, () => true));
 }
-export function forgetThumb(id) { thumbs.delete(id); }
+function pumpThumbs() {
+  thumbTimer = null;
+  const end = performance.now() + 10;
+  for (const [id, level] of thumbQueue) {
+    thumbQueue.delete(id);
+    if (!thumbs.has(id)) thumbs.set(id, makeThumb(level));
+    if (performance.now() > end) break;
+  }
+  if (thumbQueue.size) thumbTimer = setTimeout(pumpThumbs, 16);
+  if (thumbRerender) thumbRerender();
+}
+export function setThumbRerender(fn) { thumbRerender = fn; }
+export function thumbURL(level, now = false) {
+  const u = thumbs.get(level.id);
+  if (u) return u;
+  if (now) { const v = makeThumb(level); thumbs.set(level.id, v); return v; }
+  thumbQueue.set(level.id, level);
+  if (!thumbTimer) thumbTimer = setTimeout(pumpThumbs, 0);
+  return BLANK;
+}
+export function forgetThumb(id) { thumbs.delete(id); thumbQueue.delete(id); }
 

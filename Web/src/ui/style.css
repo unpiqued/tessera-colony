@@ -299,3 +299,29 @@ input[type=color] { width: 54px; height: 36px; border: 1px solid var(--panel-edg
 .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid rgba(217, 164, 65, .3); border-top-color: var(--brass); animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg) } }
 .loading { height: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--sand-dim); }
+
+/* Phones: a denser game panel (tunnels first, slimmer rows) */
+.cpanel.phone { gap: 8px; padding: 10px; }
+.cpanel.phone .lvl-title { font-size: 17px; line-height: 1.15; }
+.cpanel.phone .thead { font-size: 10px; min-height: 16px; letter-spacing: .06em; }
+.cpanel.phone .tcol { gap: 4px; }
+.cpanel.phone .tunnels { gap: 8px; }
+.cpanel.phone .minichip { height: 20px; font-size: 11px; }
+.cpanel.phone .fit { font-size: 10px; height: 12px; line-height: 12px; }
+.cpanel.phone .slots { padding: 4px 4px 2px 0; gap: 6px; }
+.cpanel.phone .slot .cap { font-size: 10px; height: 12px; line-height: 12px; }
+.cpanel.phone .pod.add { font-size: 10px; }
+.cpanel.phone .tool { min-height: 44px; font-size: 14px; }
+.cpanel.phone .event { font-size: 12px; }
+.cpanel.phone .msgcard { padding: 10px; gap: 8px; }
+.cpanel.phone .caps { font-size: 11px; }
+.cpanel.phone .teamcard { border-radius: 13px; }
+@media (max-width: 599px) {
+  .game-tall { gap: 6px; padding-top: 6px; }
+  .coach { padding: 10px 12px; gap: 10px; }
+  .coach .title { font-size: 16px !important; }
+  .coach .dim { font-size: 13px !important; }
+  .coach-host { padding: 8px 8px 8px 54px; }
+}
+
+button, .pod, .chip, .pill, input[type=range] { touch-action: manipulation; }

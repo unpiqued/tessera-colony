@@ -3,7 +3,7 @@
 import { h } from './vdom.js';
 import { icon } from './icons.js';
 import { pieceStyle } from './swatch.js';
-import { modifierInfo, TimeText, difficultyTitle, formatNumber } from './compat.js';
+import { modifierInfo, TimeText, difficultyTitle, formatNumber, paletteName } from './compat.js';
 
 export function pill(label, onclick, opts = {}) {
   return h('button', {
@@ -86,7 +86,7 @@ export function chamberPod(palette, team, size, opts = {}) {
 
 export function miniChip(palette, spec, k) {
   return h('div', {
-    key: 'mc' + k, class: 'minichip num ink', 'aria-label': `Next: team of ${spec.quota}`,
+    key: 'mc' + k, class: 'minichip num ink', 'aria-label': `Next: ${paletteName(palette, spec.family)} team, ${spec.quota} tiles`,
     style: pieceStyle(palette, spec.family, 9, 200, 26, { opacity: String(0.9 * (1 - 0.18 * k)) }),
   }, String(spec.quota));
 }
@@ -99,8 +99,8 @@ export function howPlayed(e) {
 }
 
 export function highScoreList(entries, highlight = null, compact = false) {
-  return h('div', { class: ['hs-list', compact && 'compact'] },
-    entries.map((e, i) => h('div', { key: 'hs' + i, class: ['hs-row', highlight === i && 'hl'], 'aria-label': `${i + 1}. ${e.name}, ${e.score} points` },
+  return h('div', { class: ['hs-list', compact && 'compact'], role: 'list' },
+    entries.map((e, i) => h('div', { key: 'hs' + i, role: 'listitem', class: ['hs-row', highlight === i && 'hl'], 'aria-label': `${i + 1}. ${e.name}, ${e.score} points, ${howPlayed(e)}, time ${TimeText.mmss(e.seconds)}` },
       h('span', { class: 'num', style: { width: '18px', textAlign: 'right', fontSize: '13px', fontWeight: 700, color: i === 0 ? 'var(--brass)' : 'var(--sand-dim)' } }, String(i + 1)),
       h('span', { style: { fontWeight: 600, fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 } }, e.name),
       compact ? null : h('span', { class: 'dim', style: { fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 } }, howPlayed(e)),

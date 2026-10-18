@@ -2,7 +2,7 @@
 // scheduler and raster per board, a shared clock, real-time slot occupancy, upkeep, scores, end.
 import {
   AntScheduler, MosaicRaster, SoundBoard, Sfx, VersusMatch, VersusRules, versusOptionTitle,
-  makeHighScoreEntry, paletteName, soilColor,
+  makeHighScoreEntry, paletteName, soilColor, swiftRounded,
 } from './compat.js';
 
 const SPEED_MIN = 0.1, SPEED_MAX = 16.0;
@@ -157,7 +157,7 @@ export class VersusController {
 
   ensureRaster(i, cellPx) {
     const r = this.rasters[i];
-    if (r && r.cellPx === cellPx) return r;
+    if (r && r.cellPx === Math.max(3, cellPx | 0)) return r;
     const b = this.match.boards[i].board;
     const t = this.now;
     const open = b.initialOpen();
@@ -222,19 +222,19 @@ export class VersusController {
     const lines = [];
     for (let p = 0; p < 2; p++) {
       const pl = this.match.players[p];
-      const bonus = finisher === p ? Math.round(VersusRules.finishBonusShare * this.match.tileCount) : 0;
+      const bonus = finisher === p ? swiftRounded(VersusRules.finishBonusShare * this.match.tileCount) : 0;
       const upkeep = this.rules.scoring === 'upkeep' ? pl.upkeep : 0;
       const score = this.delivered[p] + bonus - this.match.penalties(p);
       lines.push({ tiles: this.delivered[p], bonus, upkeep, addedSlots: pl.added, returns: pl.returns, skips: pl.skips, score });
     }
-    const a = Math.round(lines[0].score), b = Math.round(lines[1].score);
+    const a = swiftRounded(lines[0].score), b = swiftRounded(lines[1].score);
     const winner = a === b ? null : (a > b ? 0 : 1);
     const seconds = (nowMs() - this.startMs) / 1000;
     this.result = { lines, winner, finisher, seconds };
     this.animating = false;
     SoundBoard.shared.play(Sfx.complete);
     if (winner !== null && this.app) {
-      this.highScoreRank = this.app.highScoreRank('versus', this.level.id, Math.round(lines[winner].score), seconds);
+      this.highScoreRank = this.app.highScoreRank('versus', this.level.id, swiftRounded(lines[winner].score), seconds);
       if (this.highScoreRank !== null) SoundBoard.shared.play(Sfx.newBest, 2.1);
     }
   }
@@ -246,8 +246,8 @@ export class VersusController {
     if (!r || r.winner === null || this.highScoreRank === null || this.savedHighScorePlace !== null) return;
     const w = r.winner, other = 1 - w;
     const ru = this.rules;
-    const detail = `${versusOptionTitle('layout', ru.layout)} · ${versusOptionTitle('picking', ru.picking)} · ${versusOptionTitle('colour', ru.colour)} · ${versusOptionTitle('scoring', ru.scoring)} · beat ${Math.round(r.lines[other].score)}`;
-    const entry = makeHighScoreEntry(name, Math.round(r.lines[w].score), r.seconds, ru.difficulty, [], detail);
+    const detail = `${versusOptionTitle('layout', ru.layout)} · ${versusOptionTitle('picking', ru.picking)} · ${versusOptionTitle('colour', ru.colour)} · ${versusOptionTitle('scoring', ru.scoring)} · beat ${swiftRounded(r.lines[other].score)}`;
+    const entry = makeHighScoreEntry(name, swiftRounded(r.lines[w].score), r.seconds, ru.difficulty, [], detail);
     const place = this.app ? this.app.saveHighScore('versus', this.level.id, entry) : 0;
     this.savedHighScorePlace = place == null ? 0 : place;
     this.changed();

@@ -6,7 +6,7 @@ import { icon } from './icons.js';
 import { pill, sheet, dialog, segmented, teamFace, chamberPod, highScoreList, sectionTitle } from './components.js';
 import {
   VersusBoardCanvas, VersusRules, versusOptions, versusOptionTitle, versusOptionBlurb, DIFFICULTIES, levelChambers,
-  LevelCatalog, thumbURL, levelTileCount, paletteName, formatNumber, PLAYER_COLORS, defaultVersusRules,
+  LevelCatalog, thumbURL, levelTileCount, paletteName, formatNumber, PLAYER_COLORS, defaultVersusRules, swiftRounded,
 } from './compat.js';
 import { VersusController } from './versusController.js';
 import { pieceStyle } from './swatch.js';
@@ -126,7 +126,7 @@ function versusControls(ctx, p) {
       h('i', { style: { width: '12px', height: '12px', borderRadius: '50%', background: accent, display: 'block', alignSelf: 'center' } }),
       h('span', { class: 'title', style: { fontSize: '17px' } }, VersusController.names[p]),
       h('span', { class: 'grow' }),
-      h('span', { class: 'num', style: { fontSize: '24px', fontWeight: 800, color: accent } }, String(Math.round(c.scores[p]))),
+      h('span', { class: 'num', style: { fontSize: '24px', fontWeight: 800, color: accent } }, String(swiftRounded(c.scores[p]))),
       h('span', { class: 'dim', style: { fontSize: '11px' } }, 'pts')),
     h('div', { class: 'dim', style: { fontSize: '10px', marginTop: '-6px' } }, `${c.delivered[p]} tiles home · −${Math.round(c.penalties(p))} penalties`),
     h('div', { class: 'row', style: { gap: '5px', flexWrap: 'wrap' } },
@@ -148,10 +148,10 @@ function resultCard(ctx) {
     const accent = hex(PLAYER_COLORS[p]);
     return h('div', { class: 'col grow', key: 'c' + p, style: { gap: '4px', textAlign: 'left', minWidth: '160px' } },
       h('div', { class: 'row' }, h('i', { style: { width: '12px', height: '12px', borderRadius: '50%', background: accent, display: 'block' } }), h('span', { class: 'title', style: { fontSize: '18px' } }, VersusController.names[p])),
-      h('div', { class: 'num', style: { fontSize: '26px', fontWeight: 800, color: accent } }, `${Math.round(l.score)} points`),
+      h('div', { class: 'num', style: { fontSize: '26px', fontWeight: 800, color: accent } }, `${swiftRounded(l.score)} points`),
       line('Tiles home', `+${l.tiles}`),
       l.bonus > 0 ? line('First to finish', `+${Math.round(l.bonus)}`) : null,
-      l.upkeep > 0 ? line('Slot upkeep', `−${Math.round(l.upkeep)}`) : null,
+      l.upkeep > 0 ? line('Slot upkeep', `−${swiftRounded(l.upkeep)}`) : null,
       l.addedSlots > 0 ? line(`Added slots ×${l.addedSlots}`, `−${Math.round(l.addedSlots * VersusRules.addSlotPenalty)}`) : null,
       l.returns > 0 ? line(`Returned teams ×${l.returns}`, `−${Math.round(l.returns * VersusRules.returnPenalty)}`) : null,
       l.skips > 0 ? line(`Queue jumps ×${l.skips}`, `−${Math.round(l.skips * VersusRules.skipPenalty)}`) : null);

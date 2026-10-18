@@ -31,7 +31,7 @@ function draw() {
   const screenKey = screen + ':' + (app.versus ? app.versus.uid : app.current ? app.current.uid : '');
   if (screenKey !== lastScreen) {
     // a new screen starts with no sheet, dialog or menu open
-    if (lastScreen !== null) { ui.sheet = null; ui.dialog = null; ui.menu = null; ui.nameDraft = null; }
+    if (lastScreen !== null) { ui.sheet = null; ui.dialog = null; ui.menu = null; ui.nameDraft = null; ui.vs = null; ui.start = null; }
     lastScreen = screenKey;
   }
   const ctx = { app, ui, size: size(), rerender, versusSetupSheet };
@@ -39,7 +39,15 @@ function draw() {
   if (screen === 'versus') node = versusView(Object.assign(ctx, { match: app.versus }));
   else if (screen === 'game') node = gameView(Object.assign(ctx, { controller: app.current }));
   else node = homeView(ctx);
-  render(node, root);
+  try {
+    render(node, root);
+  } catch (e) {
+    // a half-applied patch would break every later frame: start the page over from scratch
+    root.__vnode = null;
+    root.textContent = '';
+    render(node, root);
+    console.error(e);
+  }
 }
 
 function tick() {
@@ -54,15 +62,17 @@ function unlockAudio() {
 
 function start() {
   app = bootApp(rerender);
+  window.__tc = { app, SoundBoard };   // for diagnostics from the console
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(rerender).observe(root);
   else window.addEventListener('resize', rerender);
-  for (const t of ['pointerdown', 'pointerup', 'touchend']) window.addEventListener(t, unlockAudio, { capture: true });
+  // iPhone/iPad only treat touchend / pointerup / click as gestures that may start audio
+  for (const t of ['pointerup', 'touchend', 'click']) window.addEventListener(t, unlockAudio, { capture: true });
   window.addEventListener('keydown', e => {
     unlockAudio();
     if (e.key === 'Escape') {
       if (ui.menu) ui.menu = null;
       else if (ui.dialog) ui.dialog = null;
-      else if (ui.sheet) { ui.sheet = null; ui.start = null; }
+      else if (ui.sheet) { ui.sheet = null; ui.start = null; ui.vs = null; }
       else return;
       rerender();
     }

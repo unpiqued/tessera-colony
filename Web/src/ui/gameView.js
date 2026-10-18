@@ -46,17 +46,26 @@ function teamPressHandlers(c, q) {
     onpointerdown: e => {
       if (e.button !== undefined && e.button !== 0) return;
       clear();
-      press = { q, x: e.clientX, y: e.clientY, timer: setTimeout(() => { if (press) { press.timer = null; press.scouted = true; } c.beginScout(q); }, 350) };
+      press = { q, x: e.clientX, y: e.clientY, scouted: false, timer: setTimeout(() => { if (press) { press.timer = null; press.scouted = true; } c.beginScout(q); }, 350) };
     },
     onpointermove: e => {
       if (press && press.timer && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 12) { clearTimeout(press.timer); press = null; }
     },
     onpointerup: () => {
-      if (press && press.q === q && press.timer) { clear(); c.dispatch(q); } else clear();
+      if (press && press.q === q && press.timer) { clear(); c.dispatch(q); }
+      else if (press && !press.scouted) clear();
+      // after a long press the press record stays until contextmenu (or the next press) so the
+      // browser's own long-press menu event can't scout a second time
     },
     onpointercancel: clear,
     onclick: e => { if (e.detail === 0) c.dispatch(q); },   // keyboard activation
-    oncontextmenu: e => { e.preventDefault(); clear(); c.beginScout(q); },
+    onkeydown: e => { if (e.key === 's' || e.key === 'S') { e.preventDefault(); c.beginScout(q); } },
+    oncontextmenu: e => {
+      e.preventDefault();
+      const already = press && press.scouted;
+      clear();
+      if (!already) c.beginScout(q);
+    },
   };
 }
 
@@ -70,14 +79,16 @@ function mountBoard(el, c, cell) {
 
 export function gameView(ctx) {
   const { app, controller: c, ui, size, rerender } = ctx;
-  const layout = computeLayout(c.board, size.w, size.h);
+  let layout = computeLayout(c.board, size.w, size.h);
+  if (c.visuallyComplete && c._frozenLayout) layout = c._frozenLayout;   // typing a name must not resize the board
+  c._frozenLayout = layout;
   const bw = Math.round(c.board.cols * layout.cell), bh = Math.round(c.board.rows * layout.cell);
   if (c.boardCanvas && c.boardCanvas._cell !== layout.cell) { c.boardCanvas._cell = layout.cell; c.boardCanvas.setCell(layout.cell); }
   const backdrop = c.groundColor;
   const bg = `rgb(${((backdrop >> 16) & 255) * 0.5 | 0},${((backdrop >> 8) & 255) * 0.5 | 0},${(backdrop & 255) * 0.5 | 0})`;
 
   const boardStack = h('div', { class: 'board-area', key: 'board-area' },
-    h('div', { class: 'board-wrap', key: 'board-' + c.level.id, style: { width: bw + 'px', height: bh + 'px' }, ref: el => mountBoard(el, c, layout.cell) }),
+    h('div', { class: 'board-wrap', key: 'board-' + c.uid, style: { width: bw + 'px', height: bh + 'px' }, ref: el => mountBoard(el, c, layout.cell) }),
     c.coach ? h('div', { class: 'coach-host', key: 'coach' },
       h('div', { class: 'coach', role: 'status' },
         h('span', { class: 'brass', style: { paddingTop: '2px' } }, icon('ant.fill', 24)),
@@ -91,7 +102,7 @@ export function gameView(ctx) {
     ? h('div', { class: 'game-wide', key: 'wide' }, boardStack, h('div', { class: 'panel-scroll', style: { width: layout.panelWidth + 'px' } }, panel))
     : h('div', { class: 'game-tall', key: 'tall' }, boardStack, panel);
 
-  return h('div', { class: 'game', key: 'game', style: { background: bg } },
+  return h('div', { class: 'game', key: 'game-' + c.uid, style: { background: bg } },
     body,
     overlays(ctx),
     h('button', { class: 'exit-btn', type: 'button', 'aria-label': 'Exit to Home', title: 'Exit to Home (your game is saved)', onclick: () => app.goHome() }, icon('xmark', 18)),
@@ -102,16 +113,50 @@ export function gameView(ctx) {
 // MARK: - Control panel
 
 function controlPanel(ctx, compact) {
-  const { controller: c } = ctx;
+  const { controller: c, size } = ctx;
+  const event = c.eventText ? h('div', { class: 'event', key: 'ev', role: 'status' }, h('span', null, c.eventText)) : null;
+  if (compact && size.w < 600) {
+    // Phones: the teams you tap come straight under the board, then the slots; the rest follows.
+    return h('div', { class: ['panel', 'cpanel', 'compact', 'phone'], key: 'cpanel' },
+      phoneHeader(ctx),
+      tunnelsRow(ctx, true),
+      slotsRow(ctx, true),
+      event,
+      messageArea(ctx),
+      toolbar(ctx),
+      speedRow(ctx));
+  }
   return h('div', { class: ['panel', 'cpanel', compact && 'compact'], key: 'cpanel' },
     header(ctx, compact),
-    c.eventText ? h('div', { class: 'event', key: 'ev', role: 'status' }, h('span', null, c.eventText)) : null,
+    event,
     slotsRow(ctx, compact),
     tunnelsRow(ctx, compact),
     messageArea(ctx),
     toolbar(ctx),
     speedRow(ctx),
     compact ? null : nestMiniature(c));
+}
+
+/** One slim row: title, moves, tiles home, the menu; a thin progress bar under it. */
+function phoneHeader(ctx) {
+  const { controller: c, ui, rerender } = ctx;
+  let sub = `${difficultyTitle(c.difficulty)} · ${c.moveCount} moves`;
+  if (c.assistCount > 0) sub += ` · ${c.assistCount} assists`;
+  const mods = ChallengeModifier.sorted(c.modifiers);
+  return h('div', { class: 'col', style: { gap: '4px' } },
+    h('div', { class: 'row', style: { gap: '8px' } },
+      h('div', { class: 'col grow', style: { gap: 0 } },
+        h('div', { class: 'title lvl-title' }, c.level.title),
+        h('div', { class: 'dim num', style: { fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+          `${sub} · ${formatNumber(c.deliveredCount)}/${formatNumber(c.board.tileCount)} home`)),
+      mods.length ? h('span', { class: 'mods', title: 'Harder options · score ×' + c.scoreFactor.toFixed(2) },
+        mods.map(m => h('span', { key: m, class: 'm', style: { width: '18px', height: '18px' } }, icon(modifierInfo(m).systemImage, 11)))) : null,
+      h('button', {
+        class: 'iconbtn', type: 'button', 'aria-label': 'Menu', 'aria-haspopup': 'menu',
+        style: { color: 'var(--sand)', '--icon-ink': 'var(--panel-edge)', width: '40px', height: '40px' },
+        onclick: e => { const r = e.currentTarget.getBoundingClientRect(); ui.menu = { top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) }; rerender(); },
+      }, icon('ellipsis.circle.fill', 28))),
+    progressBar(c.progress));
 }
 
 function header(ctx, compact) {
@@ -142,8 +187,9 @@ function header(ctx, compact) {
 }
 
 function slotsRow(ctx, compact) {
-  const { controller: c, ui, rerender } = ctx;
-  const pod = compact ? 54 : 62;
+  const { controller: c, ui, rerender, size } = ctx;
+  const phone = compact && size.w < 600;
+  const pod = phone ? 44 : compact ? 54 : 62;
   const open = Math.max(0, c.capacity - c.occupiedSlots);
   const items = c.slots.map(item => slotView(ctx, item, pod));
   if (c.jammedTeam) {
@@ -167,7 +213,7 @@ function slotsRow(ctx, compact) {
       h('span', { class: 'caps', style: { color: c.isBlocked ? 'var(--danger)' : 'var(--sand-dim)' } }, 'Slots'),
       h('span', { class: 'num', style: { fontSize: '12px', fontWeight: 700, color: c.hasOpenSlot ? 'var(--ok)' : 'var(--brass)' } }, `${open} of ${c.capacity} open`),
       h('span', { class: 'grow' }),
-      h('button', { class: 'iconbtn', type: 'button', style: { height: '32px' }, 'aria-label': 'How slots work', onclick: () => { ui.dialog = { kind: 'slotsHelp' }; rerender(); } }, icon('questionmark.circle', 20))),
+      h('button', { class: 'iconbtn', type: 'button', style: { height: phone ? '28px' : '32px' }, 'aria-label': 'How slots work', onclick: () => { ui.dialog = { kind: 'slotsHelp' }; rerender(); } }, icon('questionmark.circle', phone ? 18 : 20))),
     h('div', { class: 'slots' }, items),
     fullText ? h('div', { class: 'brass', style: { fontSize: '12px' } }, fullText) : null);
 }
@@ -206,25 +252,25 @@ function tunnelsRow(ctx, compact) {
   const cols = [];
   for (let q = 0; q < c.tunnelCount; q++) cols.push(tunnelColumn(ctx, q, compact));
   return h('div', { class: 'col', style: { gap: '6px' } },
-    h('div', { class: 'row base wrap', style: { gap: '4px 10px' } },
+    phone ? null : h('div', { class: 'row base wrap', style: { gap: '4px 10px' } },
       h('span', { class: 'caps dim' }, 'Tunnels'),
-      phone ? h('span', { class: 'dim', style: { fontSize: '11px', opacity: 0.85 } }, 'Tap to send · hold to scout')
-        : h('span', { class: 'dim', style: { fontSize: '11px', opacity: 0.85, flex: '1 1 200px' } },
-          "Tap a team to send it into an open slot — each tap sends the next team in line. A team that can't reach all its tiles waits in its slot by itself.")),
+      h('span', { class: 'dim', style: { fontSize: '11px', opacity: 0.85, flex: '1 1 200px' } },
+        "Tap a team to send it into an open slot — each tap sends the next team in line. A team that can't reach all its tiles waits in its slot by itself.")),
     h('div', { class: 'tunnels' }, cols));
 }
 
 function tunnelColumn(ctx, q, compact) {
-  const { controller: c, ui, rerender } = ctx;
-  const cardHeight = compact ? 84 : 104;
+  const { controller: c, ui, rerender, size } = ctx;
+  const phone = compact && size.w < 600;
+  const cardHeight = phone ? 64 : compact ? 84 : 104;
   const pal = c.palette;
-  const next = c.upcoming(q, 3);
+  const next = c.upcoming(q, phone ? 2 : 3);
   const behind = Math.max(0, c.remaining(q) - 1 - next.length);
   const fr = c.front(q);
   const openQueue = () => { if (!c.queueHidden) { ui.sheet = { kind: 'queue', tunnel: q }; rerender(); } };
   const parts = [
     h('button', { class: 'thead', type: 'button', key: 'th', onclick: openQueue, 'aria-label': `Tunnel ${q + 1}, ${c.remaining(q)} teams left. Show the whole queue.` },
-      `TUNNEL ${q + 1} · ${c.remaining(q)} left`),
+      phone ? `TUNNEL ${q + 1} · ${c.remaining(q)} LEFT` : `TUNNEL ${q + 1} · ${c.remaining(q)} left`),
   ];
   if (fr) {
     const refusal = c.colourRefusal(q);
@@ -232,7 +278,7 @@ function tunnelColumn(ctx, q, compact) {
     parts.push(teamFace(pal, fr.family, fr.need, cardHeight, [highlighted && 'hl', !c.canSend(q) && 'dim'],
       Object.assign({
         key: 'front-' + fr.uid,
-        'aria-label': `Tunnel ${q + 1}: ${paletteName(pal, fr.family)} team, ${fr.need} tiles${fr.isReturned ? ', returned' : ''}. ${c.scoutAllowed ? 'Press and hold to scout.' : ''}`,
+        'aria-label': `Tunnel ${q + 1}: ${paletteName(pal, fr.family)} team, ${fr.need} tiles${fr.isReturned ? ', returned' : ''}. ${c.scoutAllowed ? 'Press and hold, or press S, to scout.' : ''}`,
         children: refusal ? h('span', { class: 'sametag' }, 'Same colour') : null,
       }, teamPressHandlers(c, q))));
     if (c.difficulty === 'gentle' && q < c.fitBadges.length && c.fitBadges[q] !== null && c.fitBadges[q] !== undefined) {
@@ -242,11 +288,11 @@ function tunnelColumn(ctx, q, compact) {
       parts.push(h('div', { class: 'fit dim', key: 'fit' }, 'Returned team'));
     }
     if (c.queueHidden) {
-      const n = Math.min(3, Math.max(0, c.remaining(q) - 1));
+      const n = Math.min(phone ? 2 : 3, Math.max(0, c.remaining(q) - 1));
       for (let k = 0; k < n; k++) parts.push(h('div', { class: 'minichip hidden', key: 'hq' + k, style: { opacity: String(1 - 0.18 * k) } }, icon('questionmark', 12)));
     } else {
       next.forEach((spec, k) => parts.push(miniChip(pal, spec, k)));
-      if (behind > 0) parts.push(h('button', { class: 'brass', key: 'more', type: 'button', style: { minHeight: '28px', fontSize: '12px', fontWeight: 700 }, onclick: openQueue }, `+${behind} more`));
+      if (behind > 0) parts.push(h('button', { class: 'brass', key: 'more', type: 'button', style: { minHeight: phone ? '22px' : '28px', fontSize: phone ? '11px' : '12px', fontWeight: 700 }, onclick: openQueue }, `+${behind} more`));
     }
   } else {
     parts.push(h('div', { class: 'teamcard emptyq', key: 'empty', style: { '--h': cardHeight + 'px' } }, 'Empty'));
@@ -314,7 +360,7 @@ function speedRow(ctx) {
     h('div', { class: 'row', style: { minHeight: '44px' } },
       h('span', { class: 'dim' }, icon('tortoise.fill', 20)),
       h('input', {
-        id: 'ant-speed', type: 'range', min: '0', max: '1', step: '0.001', value: String(v), 'aria-label': 'Ant speed', 'aria-valuetext': speedLabel(c.speed),
+        id: 'ant-speed', type: 'range', min: '0', max: '1', step: '0.001', value: v.toFixed(3), 'aria-label': 'Ant speed', 'aria-valuetext': speedLabel(c.speed),
         oninput: e => c.setSpeed(Math.exp(LOG_LO + parseFloat(e.target.value) * (LOG_HI - LOG_LO))),
         onchange: () => c.commitSpeed(),
       }),
