@@ -27,9 +27,12 @@ export function computeLayout(board, w, h) {
   }
   const availW = w - 24;
   if (w < 600) {
-    // Phones: the board fills the width (up to ~3/4 of the height); the controls scroll below it.
-    // (The iPad app keeps the whole panel on screen, which leaves a phone only a small board.)
-    const cell = Math.max(2.5, Math.min(availW / cols, (h * 0.74) / rows));
+    // Phones: the board fills the width, but never pushes the tunnels and slots off the screen
+    // (about 280 px of controls stay in view under it); never below 45% of the height. The iPad
+    // app keeps the whole panel on screen, which would leave a phone only a small board.
+    const essentials = 280;
+    const fitH = Math.max((h - essentials) / rows, (h * 0.45) / rows);
+    const cell = Math.max(2.5, Math.min(availW / cols, fitH));
     return { wide, cell: Math.floor(cell * 4) / 4, panelWidth: w, phone: true };
   }
   const panelHeight = 480;
@@ -213,7 +216,7 @@ function slotsRow(ctx, compact) {
       h('span', { class: 'caps', style: { color: c.isBlocked ? 'var(--danger)' : 'var(--sand-dim)' } }, 'Slots'),
       h('span', { class: 'num', style: { fontSize: '12px', fontWeight: 700, color: c.hasOpenSlot ? 'var(--ok)' : 'var(--brass)' } }, `${open} of ${c.capacity} open`),
       h('span', { class: 'grow' }),
-      h('button', { class: 'iconbtn', type: 'button', style: { height: phone ? '28px' : '32px' }, 'aria-label': 'How slots work', onclick: () => { ui.dialog = { kind: 'slotsHelp' }; rerender(); } }, icon('questionmark.circle', phone ? 18 : 20))),
+      h('button', { class: 'iconbtn', type: 'button', style: { height: phone ? '22px' : '32px' }, 'aria-label': 'How slots work', onclick: () => { ui.dialog = { kind: 'slotsHelp' }; rerender(); } }, icon('questionmark.circle', phone ? 18 : 20))),
     h('div', { class: 'slots' }, items),
     fullText ? h('div', { class: 'brass', style: { fontSize: '12px' } }, fullText) : null);
 }
@@ -264,13 +267,15 @@ function tunnelColumn(ctx, q, compact) {
   const phone = compact && size.w < 600;
   const cardHeight = phone ? 64 : compact ? 84 : 104;
   const pal = c.palette;
-  const next = c.upcoming(q, phone ? 2 : 3);
+  const next = c.upcoming(q, phone ? 1 : 3);
   const behind = Math.max(0, c.remaining(q) - 1 - next.length);
   const fr = c.front(q);
   const openQueue = () => { if (!c.queueHidden) { ui.sheet = { kind: 'queue', tunnel: q }; rerender(); } };
   const parts = [
     h('button', { class: 'thead', type: 'button', key: 'th', onclick: openQueue, 'aria-label': `Tunnel ${q + 1}, ${c.remaining(q)} teams left. Show the whole queue.` },
-      phone ? `TUNNEL ${q + 1} · ${c.remaining(q)} LEFT` : `TUNNEL ${q + 1} · ${c.remaining(q)} left`),
+      phone ? (c.tunnelCount >= 3 ? `TUNNEL ${q + 1} · ${c.remaining(q)}`
+        : h('span', null, `TUNNEL ${q + 1} · ${c.remaining(q)} LEFT`, behind > 0 && !c.queueHidden ? h('span', { class: 'brass' }, ` · +${behind}`) : null))
+        : `TUNNEL ${q + 1} · ${c.remaining(q)} left`),
   ];
   if (fr) {
     const refusal = c.colourRefusal(q);
@@ -288,11 +293,11 @@ function tunnelColumn(ctx, q, compact) {
       parts.push(h('div', { class: 'fit dim', key: 'fit' }, 'Returned team'));
     }
     if (c.queueHidden) {
-      const n = Math.min(phone ? 2 : 3, Math.max(0, c.remaining(q) - 1));
+      const n = Math.min(phone ? 1 : 3, Math.max(0, c.remaining(q) - 1));
       for (let k = 0; k < n; k++) parts.push(h('div', { class: 'minichip hidden', key: 'hq' + k, style: { opacity: String(1 - 0.18 * k) } }, icon('questionmark', 12)));
     } else {
       next.forEach((spec, k) => parts.push(miniChip(pal, spec, k)));
-      if (behind > 0) parts.push(h('button', { class: 'brass', key: 'more', type: 'button', style: { minHeight: phone ? '22px' : '28px', fontSize: phone ? '11px' : '12px', fontWeight: 700 }, onclick: openQueue }, `+${behind} more`));
+      if (behind > 0 && !phone) parts.push(h('button', { class: 'brass', key: 'more', type: 'button', style: { minHeight: phone ? '22px' : '28px', fontSize: phone ? '11px' : '12px', fontWeight: 700 }, onclick: openQueue }, `+${behind} more`));
     }
   } else {
     parts.push(h('div', { class: 'teamcard emptyq', key: 'empty', style: { '--h': cardHeight + 'px' } }, 'Empty'));

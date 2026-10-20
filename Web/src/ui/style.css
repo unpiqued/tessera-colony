@@ -325,3 +325,6 @@ input[type=color] { width: 54px; height: 36px; border: 1px solid var(--panel-edg
 }
 
 button, .pod, .chip, .pill, input[type=range] { touch-action: manipulation; }
+
+.cpanel.phone .lvl-title { font-size: 16px; }
+.cpanel.phone .slots { padding-top: 2px; }
