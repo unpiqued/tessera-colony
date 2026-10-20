@@ -28,9 +28,9 @@ export function computeLayout(board, w, h) {
   const availW = w - 24;
   if (w < 600) {
     // Phones: the board fills the width, but never pushes the tunnels and slots off the screen
-    // (about 280 px of controls stay in view under it); never below 45% of the height. The iPad
+    // (about 300 px of controls stay in view under it); never below 45% of the height. The iPad
     // app keeps the whole panel on screen, which would leave a phone only a small board.
-    const essentials = 280;
+    const essentials = 300;
     const fitH = Math.max((h - essentials) / rows, (h * 0.45) / rows);
     const cell = Math.max(2.5, Math.min(availW / cols, fitH));
     return { wide, cell: Math.floor(cell * 4) / 4, panelWidth: w, phone: true };
@@ -119,15 +119,18 @@ function controlPanel(ctx, compact) {
   const { controller: c, size } = ctx;
   const event = c.eventText ? h('div', { class: 'event', key: 'ev', role: 'status' }, h('span', null, c.eventText)) : null;
   if (compact && size.w < 600) {
-    // Phones: the teams you tap come straight under the board, then the slots; the rest follows.
+    // Phones: Undo and Hint sit in the header row, the teams you tap come straight under it, then
+    // the slots. Scout and hint messages float at the bottom of the screen, so a tall mosaic can't
+    // push them (or the buttons that answer them) out of view.
+    const msg = messageArea(ctx, true);
     return h('div', { class: ['panel', 'cpanel', 'compact', 'phone'], key: 'cpanel' },
       phoneHeader(ctx),
       tunnelsRow(ctx, true),
       slotsRow(ctx, true),
       event,
-      messageArea(ctx),
-      toolbar(ctx),
-      speedRow(ctx));
+      speedRow(ctx),
+      msg,
+      msg ? h('div', { class: 'float-spacer', key: 'spacer', 'aria-hidden': 'true' }) : null);
   }
   return h('div', { class: ['panel', 'cpanel', compact && 'compact'], key: 'cpanel' },
     header(ctx, compact),
@@ -143,7 +146,7 @@ function controlPanel(ctx, compact) {
 /** One slim row: title, moves, tiles home, the menu; a thin progress bar under it. */
 function phoneHeader(ctx) {
   const { controller: c, ui, rerender } = ctx;
-  let sub = `${difficultyTitle(c.difficulty)} · ${c.moveCount} moves`;
+  let sub = `${difficultyTitle(c.difficulty)} · ${c.moveCount} move${c.moveCount === 1 ? "" : "s"}`;
   if (c.assistCount > 0) sub += ` · ${c.assistCount} assists`;
   const mods = ChallengeModifier.sorted(c.modifiers);
   return h('div', { class: 'col', style: { gap: '4px' } },
@@ -155,6 +158,14 @@ function phoneHeader(ctx) {
       mods.length ? h('span', { class: 'mods', title: 'Harder options · score ×' + c.scoreFactor.toFixed(2) },
         mods.map(m => h('span', { key: m, class: 'm', style: { width: '18px', height: '18px' } }, icon(modifierInfo(m).systemImage, 11)))) : null,
       h('button', {
+        class: 'iconbtn hdr-tool', type: 'button', key: 'undo', disabled: !c.canUndo, onclick: () => c.undo(),
+        'aria-label': c.undosLeft === null ? 'Undo' : `Undo (${c.undosLeft} left)`, title: 'Undo',
+      }, icon('arrow.uturn.backward', 20), c.undosLeft !== null ? h('span', { class: 'badge num' }, String(c.undosLeft)) : null),
+      c.hintsAllowed ? h('button', {
+        class: 'iconbtn hdr-tool', type: 'button', key: 'hint', disabled: c.hintBusy || c.isLogicallyWon, onclick: () => c.requestHint(),
+        'aria-label': 'Hint', title: 'Hint',
+      }, c.hintBusy ? h('span', { class: 'spinner' }) : icon('lightbulb', 20)) : null,
+      h('button', {
         class: 'iconbtn', type: 'button', 'aria-label': 'Menu', 'aria-haspopup': 'menu',
         style: { color: 'var(--sand)', '--icon-ink': 'var(--panel-edge)', width: '40px', height: '40px' },
         onclick: e => { const r = e.currentTarget.getBoundingClientRect(); ui.menu = { top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) }; rerender(); },
@@ -164,7 +175,7 @@ function phoneHeader(ctx) {
 
 function header(ctx, compact) {
   const { controller: c, ui, rerender } = ctx;
-  let sub = `${difficultyTitle(c.difficulty)} · ${c.moveCount} moves`;
+  let sub = `${difficultyTitle(c.difficulty)} · ${c.moveCount} move${c.moveCount === 1 ? "" : "s"}`;
   if (c.assistCount > 0) sub += ` · ${c.assistCount} assists`;
   const mods = ChallengeModifier.sorted(c.modifiers);
   return h('div', { class: 'col', style: { gap: '6px' } },
@@ -204,17 +215,19 @@ function slotsRow(ctx, compact) {
         icon('plus', 18), 'Slot'),
       h('div', { class: 'cap dim', style: { fontWeight: 500, fontSize: '10px', opacity: 0.8 } }, 'add · assist')));
   }
-  let fullText = null;
+  let fullText = null, status = `${open} of ${c.capacity} open`;
   if (!c.hasOpenSlot && !c.isBlocked) {
     const s = c.nextFreeSeconds;
-    fullText = s !== null && s > 0 && s < 1e6
+    const soon = s !== null && s > 0 && s < 1e6;
+    if (phone) status = soon ? `All busy · next opens in ${Math.ceil(s)} s` : 'All busy';   // one line, no extra row
+    else fullText = soon
       ? `All slots busy — next one opens in about ${Math.ceil(s)} s. Teams can't be sent until then.`
       : 'All slots busy — a slot opens when a working team has picked up all its tiles.';
   }
   return h('div', { class: 'col', style: { gap: '6px' } },
     h('div', { class: 'row', style: { gap: '6px' } },
       h('span', { class: 'caps', style: { color: c.isBlocked ? 'var(--danger)' : 'var(--sand-dim)' } }, 'Slots'),
-      h('span', { class: 'num', style: { fontSize: '12px', fontWeight: 700, color: c.hasOpenSlot ? 'var(--ok)' : 'var(--brass)' } }, `${open} of ${c.capacity} open`),
+      h('span', { class: 'num', style: { fontSize: '12px', fontWeight: 700, color: c.hasOpenSlot ? 'var(--ok)' : 'var(--brass)' } }, status),
       h('span', { class: 'grow' }),
       h('button', { class: 'iconbtn', type: 'button', style: { height: phone ? '22px' : '32px' }, 'aria-label': 'How slots work', onclick: () => { ui.dialog = { kind: 'slotsHelp' }; rerender(); } }, icon('questionmark.circle', phone ? 18 : 20))),
     h('div', { class: 'slots' }, items),
@@ -305,14 +318,15 @@ function tunnelColumn(ctx, q, compact) {
   return h('div', { class: 'tcol', key: 'q' + q }, parts);
 }
 
-function messageArea(ctx) {
+function messageArea(ctx, floating) {
   const { controller: c } = ctx;
+  const cls = name => ['msgcard', name, floating && 'float'];
   if (c.scout) {
     const s = c.scout;
     const text = s.fits
       ? `Every one of its ${s.quota} tiles is reachable now — its slot frees as soon as they're picked up.`
       : `Reaches ${s.ownTiles.length} now; it would keep its slot and wait for the other ${s.quota - s.ownTiles.length} until they're uncovered.`;
-    return h('div', { class: 'msgcard', key: 'msg-scout', role: 'status' },
+    return h('div', { class: cls(null), key: 'msg-scout', role: 'status' },
       h('div', { class: 'row top' }, h('span', { class: 'brass' }, icon('eye.fill', 20)),
         h('div', { class: 'col grow', style: { gap: '4px' } }, h('div', { style: { fontWeight: 700 } }, `Scouting a team of ${s.quota}`), h('div', { class: 'dim', style: { fontSize: '13px' } }, text))),
       h('div', { class: 'acts' }, pill('Send', () => c.dispatch(s.tunnel), { prominent: true }), pill('Close', () => c.endScout())));
@@ -328,7 +342,7 @@ function messageArea(ctx) {
     } else {
       text = 'Every team has been sent. Sit back and watch.';
     }
-    return h('div', { class: 'msgcard', key: 'msg-hint', role: 'status' },
+    return h('div', { class: cls(null), key: 'msg-hint', role: 'status' },
       h('div', { class: 'row top' }, h('span', { class: 'brass' }, icon('lightbulb.fill', 20)), h('div', { class: 'grow', style: { fontSize: '14px' } }, text)),
       h('div', { class: 'acts' },
         hn.kind === 'undo' ? pill(`Undo ${hn.count}`, () => c.undoTimes(hn.count), { prominent: true }) : null,
@@ -336,9 +350,14 @@ function messageArea(ctx) {
         pill('OK', () => c.clearHint())));
   }
   if (c.isLogicallyWon && !c.visuallyComplete) {
-    return h('div', { class: 'msgcard okb', key: 'msg-done', role: 'status' },
+    // on phones the speed slider may be scrolled away, so the card carries its own Hurry button
+    // (a one-off: it doesn't change the speed saved in Settings)
+    const hurry = floating && c.speed < 7.9;
+    return h('div', { class: cls('okb'), key: 'msg-done', role: 'status' },
       h('div', { class: 'row top' }, h('span', { class: 'okc' }, icon('sparkles', 20)),
-        h('div', { class: 'grow', style: { fontSize: '14px' } }, "Every tile is claimed — the colony is carrying the last ones home. Slide the speed up if you'd like them to hurry.")));
+        h('div', { class: 'grow', style: { fontSize: '14px' } }, 'Every tile is claimed — the colony is carrying the last ones home.'
+          + (floating ? (hurry ? ' Tap Hurry to speed them up.' : '') : " Slide the speed up if you'd like them to hurry."))),
+      hurry ? h('div', { class: 'acts' }, pill('Hurry', () => c.setSpeed(8), { prominent: true })) : null);
   }
   return null;
 }

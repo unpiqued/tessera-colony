@@ -343,7 +343,7 @@ function startSheet(ctx, level, close) {
   };
   const top = app.topScores('solo', level.id);
   const footer = saved
-    ? [pill(`Resume · ${difficultyTitle(saved.difficulty)} · ${savedMoveCount} moves`, () => start(false), { prominent: true, wide: true, key: 'resume' }),
+    ? [pill(`Resume · ${difficultyTitle(saved.difficulty)} · ${savedMoveCount} move${savedMoveCount === 1 ? "" : "s"}`, () => start(false), { prominent: true, wide: true, key: 'resume' }),
       pill(`New game on ${difficultyTitle(st.choice)}${suffix}`, () => start(true), { wide: true, key: 'new' })]
     : [pill(`Start on ${difficultyTitle(st.choice)}${suffix}`, () => start(true), { prominent: true, wide: true, key: 'start' })];
   return sheet(level.title, () => { ui.start = null; close(); }, [

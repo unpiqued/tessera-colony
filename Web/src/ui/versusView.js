@@ -53,25 +53,46 @@ export function versusView(ctx) {
   const availW = size.w - 20;
   let body;
   if (rules.layout === 'race') {
-    const col = (p, w, hgt, rotated) => h('div', { key: 'rc' + p, class: 'col', style: { gap: '6px', padding: '8px', borderRadius: '18px', background: 'rgba(47,36,28,.85)', border: `2px solid ${accent(p)}b3`,
-      width: w + 'px', transform: rotated ? 'rotate(180deg)' : null } },
-    boardBox(c, p, w - 16, Math.max(80, hgt - 16 - controlsHeight(c))), versusControls(ctx, p));
+    // Each player's board goes above their controls, or beside them when that gives a bigger board
+    // (phones, and iPad portrait where each player only has half the height).
+    const col = (p, w, hgt, rotated) => {
+      const dense = hgt < 480 || w < 360;
+      const ch = controlsHeight(c, dense);
+      const inner = w - 16, innerH = hgt - 16;
+      const b = c.board(p);
+      const sideW = Math.round(Math.max(214, Math.min(inner * 0.6, c.tunnelCount * 84)));
+      const stackedCell = Math.min(inner / b.cols, (innerH - ch - 6) / b.rows);
+      const besideCell = Math.min((inner - sideW - 10) / b.cols, innerH / b.rows);
+      const beside = besideCell > stackedCell * 1.1;
+      const content = beside
+        ? h('div', { class: 'row', key: 'beside', style: { gap: '10px', alignItems: 'center', flex: '1' } },
+          boardBox(c, p, inner - sideW - 10, innerH), h('div', { style: { width: sideW + 'px', flex: 'none' } }, versusControls(ctx, p, dense, sideW)))
+        : h('div', { class: 'col', key: 'stacked', style: { gap: '6px' } },
+          boardBox(c, p, inner, Math.max(80, innerH - ch - 6)), versusControls(ctx, p, dense, inner));
+      return h('div', { key: 'rc' + p, class: 'col', style: { padding: '8px', borderRadius: '18px', background: 'rgba(47,36,28,.85)', border: `2px solid ${accent(p)}b3`,
+        width: w + 'px', minHeight: hgt + 'px', transform: rotated ? 'rotate(180deg)' : null } }, content);
+    };
     body = wide
       ? h('div', { class: 'row', style: { gap: '10px', alignItems: 'stretch' } }, col(0, (availW - 10) / 2, availH, false), col(1, (availW - 10) / 2, availH, false))
       : h('div', { class: 'col', style: { gap: '8px' } }, col(1, availW, (availH - 8) / 2, true), col(0, availW, (availH - 8) / 2, false));
   } else {
     if (wide) {
-      const cw = Math.min(330, size.w * 0.28);
+      const dense = availH < 480;
+      const cw = Math.max(214, Math.min(330, size.w * 0.28));
       body = h('div', { class: 'row', style: { gap: '10px', alignItems: 'flex-start' } },
-        h('div', { style: { width: cw + 'px' } }, versusControls(ctx, 0)),
+        h('div', { style: { width: cw + 'px', flex: 'none' } }, versusControls(ctx, 0, dense, cw)),
         boardBox(c, 0, availW - 2 * cw - 20, availH),
-        h('div', { style: { width: cw + 'px' } }, versusControls(ctx, 1)));
+        h('div', { style: { width: cw + 'px', flex: 'none' } }, versusControls(ctx, 1, dense, cw)));
     } else {
-      const ch = controlsHeight(c);
+      // phones: both players' controls share the height with the board, so they get the dense set,
+      // and if the board would still be small, no queue preview and a one-line message as well
+      const dense = availH - 2 * controlsHeight(c, false) - 12 < 0.45 * availH;
+      const tight = dense && availH - 2 * controlsHeight(c, true) - 12 < 220;
+      const ch = controlsHeight(c, dense, tight);
       body = h('div', { class: 'col', style: { gap: '6px' } },
-        h('div', { style: { transform: 'rotate(180deg)' } }, versusControls(ctx, 1)),
+        h('div', { style: { transform: 'rotate(180deg)' } }, versusControls(ctx, 1, dense, availW, tight)),
         boardBox(c, 0, availW, Math.max(80, availH - 2 * ch - 12)),
-        versusControls(ctx, 0));
+        versusControls(ctx, 0, dense, availW, tight));
     }
   }
   const bgc = c.groundColor;
@@ -83,19 +104,25 @@ export function versusView(ctx) {
       { label: 'Keep playing', onclick: () => { ui.dialog = null; rerender(); } }], () => { ui.dialog = null; rerender(); }) : null);
 }
 
-function controlsHeight(c) {
+/** Height of one player's controls; dense is the phone-sized set (smaller cards, one queue chip). */
+function controlsHeight(c, dense, tight) {
   const reach = c.rules.picking === 'reach3' ? 3 : 1;
+  if (tight) return 22 + 34 + (40 + (reach - 1) * 35) + 14 + 3 * 5;
+  if (dense) return 22 + 34 + (40 + (reach - 1) * 35 + 21) + 28 + 3 * 5;
   return 70 + 44 + 54 + (reach - 1) * 46 + Math.max(0, 7 - reach) * 26 + 34;
 }
 
-function versusControls(ctx, p) {
+function versusControls(ctx, p, dense, width, tight) {
   const { match: c } = ctx;
   const accent = hex(PLAYER_COLORS[p]);
   const cap = c.capacity(p);
   const t = c.now;
   const waiting = c.waiting(p);
   const working = c.working(p, t);
-  const pod = 38;
+  // the slot pods shrink rather than wrap the row (5+ slots, or added ones, in a narrow column)
+  const podCount = Math.max(cap, working.length + waiting.length) + 1;
+  const pod = Math.max(20, Math.min(dense ? 30 : 38, Math.floor(((width || 400) - (dense ? 35 : 67)) / podCount) - 5));
+  const shown = tight ? VersusRules.reachDepth(c.rules) : dense ? VersusRules.reachDepth(c.rules) + 1 : 7;   // queue entries drawn per tunnel
   const reach = VersusRules.reachDepth(c.rules);
   const pods = [];
   working.forEach((w, i) => pods.push(h('span', { key: 'w' + i }, chamberPod(c.palette, { family: w.family, remaining: w.left }, pod))));
@@ -106,36 +133,41 @@ function versusControls(ctx, p) {
   const tunnels = [];
   for (let q = 0; q < c.tunnelCount; q++) {
     const queue = c.queue(p, q);
-    const items = queue.slice(0, 7).map((team, d) => {
+    const items = queue.slice(0, shown).map((team, d) => {
       if (d < reach) {
         const why = c.refusal(p, q, d);
-        return teamFace(c.palette, team.family, team.remaining, d === 0 ? 54 : 42, why ? 'dim' : null, {
+        return teamFace(c.palette, team.family, team.remaining, d === 0 ? (dense ? 40 : 54) : (dense ? 32 : 42), why ? 'dim' : null, {
           key: 'd' + d, onclick: () => c.launch(p, q, d),
           'aria-label': `${paletteName(c.palette, team.family)} team of ${team.remaining}` + (d > 0 ? `, ${d} back in the queue` : ''),
           children: d > 0 ? h('span', { class: 'sametag', style: { top: '3px', bottom: 'auto', left: 'auto', right: '3px', transform: 'none' } }, `−${Math.round(d * VersusRules.skipPenalty)}`) : null,
         });
       }
-      return h('div', { key: 'd' + d, class: 'minichip num ink', style: pieceStyle(c.palette, team.family, 8, 200, 22, { opacity: String(0.85 - 0.08 * (d - reach)), height: '22px', borderRadius: '8px' }) }, String(team.remaining));
+      const chip = dense ? 18 : 22;
+      return h('div', { key: 'd' + d, class: 'minichip num ink', style: pieceStyle(c.palette, team.family, 8, 200, chip, { opacity: String(0.85 - 0.08 * (d - reach)), height: chip + 'px', borderRadius: '8px', fontSize: dense ? '11px' : null }) }, String(team.remaining));
     });
-    tunnels.push(h('div', { class: 'tcol', key: 'vq' + q, style: { gap: '4px' } }, items,
-      queue.length > 7 ? h('div', { class: 'dim', style: { fontSize: '10px', fontWeight: 700, textAlign: 'center' } }, `+${queue.length - 7}`) : null,
-      queue.length === 0 ? h('div', { class: 'teamcard emptyq', style: { '--h': '54px', fontSize: '11px' } }, 'Empty') : null));
+    tunnels.push(h('div', { class: 'tcol', key: 'vq' + q, style: { gap: dense ? '3px' : '4px' } }, items,
+      queue.length > shown && !tight ? h('div', { class: 'dim', style: { fontSize: '10px', fontWeight: 700, textAlign: 'center' } }, `+${queue.length - shown}`) : null,
+      queue.length === 0 ? h('div', { class: 'teamcard emptyq', style: { '--h': (dense ? 40 : 54) + 'px', fontSize: '11px' } }, 'Empty') : null));
   }
-  return h('div', { class: 'col', style: { gap: '6px' } },
-    h('div', { class: 'row base', style: { gap: '8px' } },
-      h('i', { style: { width: '12px', height: '12px', borderRadius: '50%', background: accent, display: 'block', alignSelf: 'center' } }),
-      h('span', { class: 'title', style: { fontSize: '17px' } }, VersusController.names[p]),
+  const open = Math.max(0, cap - c.occupied[p]);
+  const tally = `${c.delivered[p]} tiles home · −${Math.round(c.penalties(p))} penalties`;
+  return h('div', { class: 'col', style: { gap: dense ? '5px' : '6px' } },
+    h('div', { class: 'row base', style: { gap: dense ? '6px' : '8px' }, title: dense ? tally : null },
+      h('i', { style: { width: dense ? '10px' : '12px', height: dense ? '10px' : '12px', borderRadius: '50%', background: accent, display: 'block', alignSelf: 'center' } }),
+      h('span', { class: 'title', style: { fontSize: dense ? '14px' : '17px', whiteSpace: 'nowrap' } }, VersusController.names[p]),
+      dense ? h('span', { class: 'dim num', style: { fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 } }, `${c.delivered[p]} home`) : null,
       h('span', { class: 'grow' }),
-      h('span', { class: 'num', style: { fontSize: '24px', fontWeight: 800, color: accent } }, String(swiftRounded(c.scores[p]))),
+      h('span', { class: 'num', style: { fontSize: dense ? '18px' : '24px', fontWeight: 800, color: accent } }, String(swiftRounded(c.scores[p]))),
       h('span', { class: 'dim', style: { fontSize: '11px' } }, 'pts')),
-    h('div', { class: 'dim', style: { fontSize: '10px', marginTop: '-6px' } }, `${c.delivered[p]} tiles home · −${Math.round(c.penalties(p))} penalties`),
+    dense ? null : h('div', { class: 'dim', style: { fontSize: '10px', marginTop: '-6px' } }, tally),
     h('div', { class: 'row', style: { gap: '5px', flexWrap: 'wrap' } },
-      h('span', { class: 'num', style: { width: '62px', fontSize: '10px', fontWeight: 700, color: c.occupied[p] >= cap ? 'var(--brass)' : 'var(--ok)' } }, `${Math.max(0, cap - c.occupied[p])} of ${cap} open`),
+      h('span', { class: 'num', style: { width: dense ? '30px' : '62px', fontSize: '10px', fontWeight: 700, lineHeight: 1.15, color: c.occupied[p] >= cap ? 'var(--brass)' : 'var(--ok)' }, 'aria-label': `${open} of ${cap} slots open` },
+        dense ? `${open}/${cap} open` : `${open} of ${cap} open`),
       pods,
       h('button', { class: 'pod add', type: 'button', style: { '--pod': pod + 'px', fontSize: '9px' }, 'aria-label': `Add a slot, costs ${Math.round(VersusRules.addSlotPenalty)} points`, onclick: () => c.addSlot(p) },
-        icon('plus', 13), `−${Math.round(VersusRules.addSlotPenalty)}`)),
-    h('div', { class: 'tunnels', style: { gap: '6px' } }, tunnels),
-    h('div', { class: 'dim', style: { fontSize: '11px', minHeight: '28px' } }, c.messages[p] || ' '));
+        icon('plus', dense ? 11 : 13), `−${Math.round(VersusRules.addSlotPenalty)}`)),
+    h('div', { class: 'tunnels', style: { gap: dense ? '5px' : '6px' } }, tunnels),
+    h('div', { class: ['dim', tight ? 'clamp1' : dense && 'clamp2'], style: { fontSize: dense ? '10px' : '11px', minHeight: tight ? '14px' : dense ? '26px' : '28px', lineHeight: 1.3 } }, c.messages[p] || ' '));
 }
 
 function resultCard(ctx) {
