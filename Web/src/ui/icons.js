@@ -85,6 +85,9 @@ const ICONS = {
   'dice': `<rect x="3.5" y="3.5" width="17" height="17" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/><g fill="currentColor"><circle cx="8.3" cy="8.3" r="1.5"/><circle cx="15.7" cy="8.3" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="8.3" cy="15.7" r="1.5"/><circle cx="15.7" cy="15.7" r="1.5"/></g>`,
   'checkmark': S('M5 12.5l4.5 4.5L19 7.5', ' stroke-width="2.6"'),
   'house.fill': F('M12 3.5 3 11v1.5h2V21h5v-5.5h4V21h5v-8.5h2V11z'),
+  'lock.open.fill': F('M6 10.5h12a1.5 1.5 0 0 1 1.5 1.5v7.5A1.5 1.5 0 0 1 18 21H6a1.5 1.5 0 0 1-1.5-1.5V12A1.5 1.5 0 0 1 6 10.5z') + S('M8 10.5V7.5a4 4 0 0 1 7.6-1.7'),
+  'doc.on.doc': S('M8.5 7.5V5A1.5 1.5 0 0 1 10 3.5h8A1.5 1.5 0 0 1 19.5 5v10a1.5 1.5 0 0 1-1.5 1.5h-2.5M6 7.5h8A1.5 1.5 0 0 1 15.5 9v10A1.5 1.5 0 0 1 14 20.5H6A1.5 1.5 0 0 1 4.5 19V9A1.5 1.5 0 0 1 6 7.5z'),
+  'square.and.arrow.down': S('M12 3.5v11M7.5 10 12 14.5 16.5 10M8 7.5H6A1.5 1.5 0 0 0 4.5 9v10A1.5 1.5 0 0 0 6 20.5h12a1.5 1.5 0 0 0 1.5-1.5V9A1.5 1.5 0 0 0 18 7.5h-2'),
 };
 
 /** An icon as a vnode. `name` is the SF Symbol name used by the Swift code. */

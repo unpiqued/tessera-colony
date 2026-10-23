@@ -27,6 +27,7 @@ export function homeView(ctx) {
     h('main', { class: 'home-inner' },
       header(ctx),
       topActions(ctx),
+      progressCard(ctx),
       nextUpBanner(ctx),
       collectionBar(ctx),
       filterBar(ctx, filtering, shownCount),
@@ -72,6 +73,131 @@ function topActions(ctx) {
   return h('div', { class: 'big-actions' },
     bigButton('person.2.fill', 'Two players', 'Race or share a board on one screen', true, () => openSheet(ctx, { kind: 'versus' })),
     bigButton('trophy.fill', 'High scores', 'Best scores and names per mosaic', false, () => openSheet(ctx, { kind: 'scores', table: 'solo' })));
+}
+
+/** Unlock all puzzles, and where progress is kept (with the progress-code backup). */
+function progressCard(ctx) {
+  const { app, ui, rerender } = ctx;
+  const unlocked = app.settings.unlockAll;
+  const forgets = app.storageForgets;
+  return h('section', { class: 'card col', key: 'progress-card', style: { gap: '12px' } },
+    h('div', { class: 'row wrap', style: { gap: '10px 14px' } },
+      unlocked
+        ? h('div', { class: 'row okc', style: { gap: '8px', fontWeight: 700, fontSize: '15px', flex: '1 1 200px' } }, icon('lock.open.fill', 20), 'All puzzles are unlocked')
+        : pill('Unlock all puzzles', () => app.updateSettings(st => { st.unlockAll = true; }), { prominent: true, icon: 'lock.open.fill', iconSize: 18, key: 'unlock-all', cls: 'unlock-all' }),
+      unlocked
+        ? pill('Lock again', () => app.updateSettings(st => { st.unlockAll = false; }), { icon: 'lock.fill', key: 'relock' })
+        : h('div', { class: 'dim', style: { fontSize: '13px', flex: '1 1 200px' } }, 'Play any mosaic now — or keep opening them one by one by finishing the one before.')),
+    h('div', { class: ['row', 'top', forgets ? 'brass' : 'dim'], style: { gap: '8px', fontSize: '13px', lineHeight: '1.45', fontWeight: forgets ? 600 : 400 } },
+      forgets ? h('span', { style: { paddingTop: '1px' } }, icon('exclamationmark.triangle.fill', 16)) : null,
+      h('span', { class: 'grow' }, app.storageNote())),
+    h('div', { class: 'row wrap', style: { gap: '10px' } },
+      pill('Copy progress code', () => copyProgressCode(ctx), { icon: 'doc.on.doc', key: 'copy-code', prominent: forgets && unlocked }),
+      pill('Paste a code', () => { ui.dialog = { kind: 'pasteCode', text: '' }; rerender(); }, { icon: 'square.and.arrow.down', key: 'paste-code' })));
+}
+
+/** Builds the code and tries to put it on the clipboard straight from the tap (Safari needs that). */
+function copyProgressCode(ctx) {
+  const { app, ui, rerender } = ctx;
+  const codeP = app.progressCode();
+  let copied;
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.write === 'function' && typeof ClipboardItem !== 'undefined') {
+      const item = new ClipboardItem({ 'text/plain': codeP.then(t => new Blob([t], { type: 'text/plain' })) });
+      copied = navigator.clipboard.write([item]).then(() => true, () => false);
+    } else if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      copied = codeP.then(t => navigator.clipboard.writeText(t)).then(() => true, () => false);
+    } else copied = Promise.resolve(false);
+  } catch (e) { copied = Promise.resolve(false); }
+  ui.dialog = { kind: 'copyCode', code: null, copied: null };
+  rerender();
+  codeP.then(code => {
+    if (!ui.dialog || ui.dialog.kind !== 'copyCode') return;
+    ui.dialog.code = code;
+    rerender();
+    return copied.then(ok => { if (ui.dialog && ui.dialog.kind === 'copyCode') { ui.dialog.copied = ok; rerender(); } });
+  }, () => { ui.dialog = { kind: 'copyCode', code: '', copied: false }; rerender(); });
+}
+
+/** Selects the code box and asks the browser to copy it (works in frames where the clipboard API is blocked). */
+function selectAndCopy(ui, rerender) {
+  const el = document.getElementById('progress-code');
+  if (!el) return;
+  el.focus();
+  el.select();
+  try { el.setSelectionRange(0, el.value.length); } catch (e) { /* not a text field */ }
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  if (ui.dialog && ui.dialog.kind === 'copyCode') { ui.dialog.copied = ok ? true : 'selected'; rerender(); }
+}
+
+function codeDialog(title, body, buttons, onCancel, key) {
+  return h('div', { class: 'scrim', key: 'dlg-' + key, onclick: e => { if (e.target === e.currentTarget) onCancel(); } },
+    h('div', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+      h('div', { class: 'title' }, title),
+      body,
+      h('div', { class: 'btns' }, buttons.map((b, i) => pill(b.label, b.onclick, { prominent: b.prominent, wide: true, disabled: b.disabled, key: 'b' + i })))));
+}
+
+function progressDialogs(ctx, d, closeDialog) {
+  const { app, ui, rerender } = ctx;
+  if (d.kind === 'copyCode') {
+    const status = d.code === null ? 'Making your code…'
+      : d.code === '' ? "Couldn't make a code in this browser."
+        : d.copied === true ? 'Copied. Keep it somewhere safe (Notes, a message to yourself) and paste it here next time with Paste a code.'
+          : d.copied === 'selected' ? 'The code is selected — use Copy from your browser’s menu, then keep it somewhere safe.'
+            : d.copied === false ? 'Select the whole code below and copy it, then keep it somewhere safe.'
+              : 'Copying…';
+    const finished = Object.keys(app.progress).length;
+    return codeDialog('Progress code', [
+      h('div', { class: 'dim', key: 'what', style: { fontSize: '14px', lineHeight: '1.45' } },
+        `Holds ${finished} finished mosaic${finished === 1 ? '' : 's'}, your high scores, settings and saved games (not photo mosaics).`),
+      h('div', { key: 'st', role: 'status', class: d.copied === true ? 'okc' : 'brass', style: { fontSize: '14px', fontWeight: 600, lineHeight: '1.45' } }, status),
+      d.code ? h('textarea', { key: 'box', id: 'progress-code', class: 'codebox', readonly: true, rows: 4, value: d.code, 'aria-label': 'Your progress code', onfocus: e => e.target.select() }) : null,
+    ], [
+      { label: d.copied === true ? 'Copy again' : 'Select & copy', prominent: d.copied !== true, disabled: !d.code, onclick: () => selectAndCopy(ui, rerender) },
+      { label: 'Done', prominent: d.copied === true, onclick: closeDialog },
+    ], closeDialog, 'copycode');
+  }
+  if (d.kind === 'pasteCode') {
+    const finished = Object.keys(app.progress).length;
+    const load = () => {
+      if (d.busy) return;
+      d.busy = true; d.error = null; rerender();
+      app.loadProgressCode(d.text).then(n => {
+        ui.dialog = { kind: 'codeLoaded', count: n };
+        rerender();
+      }, e => {
+        if (ui.dialog === d) { d.busy = false; d.error = (e && e.message) || "That code couldn't be read."; rerender(); }
+      });
+    };
+    return codeDialog('Paste a progress code', [
+      h('div', { class: 'dim', key: 'what', style: { fontSize: '14px', lineHeight: '1.45' } },
+        finished > 0 ? `Loading a code replaces the progress in this browser (${finished} finished mosaic${finished === 1 ? '' : 's'}) with the code’s.`
+          : 'Paste the code you copied last time to get your finished mosaics, high scores and saved games back.'),
+      h('textarea', { key: 'box', id: 'paste-code', class: 'codebox', rows: 4, value: d.text || '', placeholder: 'TC1.…', 'aria-label': 'Progress code',
+        autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', oninput: e => { d.text = e.target.value; if (d.error) { d.error = null; rerender(); } } }),
+      d.error ? h('div', { key: 'err', role: 'alert', class: 'dangerc', style: { fontSize: '14px', fontWeight: 600 } }, d.error) : null,
+    ], [
+      { label: d.busy ? 'Loading…' : 'Load progress', prominent: true, disabled: d.busy, onclick: load },
+      { label: 'Cancel', onclick: closeDialog },
+    ], closeDialog, 'pastecode');
+  }
+  if (d.kind === 'codeLoaded') {
+    return dialog('Progress loaded', `${d.count} finished mosaic${d.count === 1 ? '' : 's'}, plus your high scores, settings and saved games, are back.`,
+      [{ label: 'OK', prominent: true, onclick: closeDialog }], closeDialog, 'loaded');
+  }
+  if (d.kind === 'locked') {
+    const level = app.allLevels.find(l => l.id === d.levelID);
+    const st = level ? app.status(level) : null;
+    const hidden = st && st.kind === 'hidden';
+    const why = st && st.kind === 'packLocked' ? `It opens after ${st.label}.`
+      : hidden ? (st.more === 1 ? 'Finish 1 more mosaic in this pack to find it.' : `Finish ${st.more} more mosaics in this pack to find it.`) : '';
+    return dialog(hidden ? 'Undiscovered mosaic' : 'Locked mosaic', `${why}\nOr unlock every puzzle now and play it straight away.`, [
+      { label: 'Unlock all puzzles', prominent: true, onclick: () => { ui.dialog = null; app.updateSettings(x => { x.unlockAll = true; }); ui.sheet = { kind: 'start', levelID: d.levelID }; rerender(); } },
+      { label: 'Not now', onclick: closeDialog }], closeDialog, 'locked');
+  }
+  return null;
 }
 
 function nextUpBanner(ctx) {
@@ -183,8 +309,8 @@ function packShelf(ctx, id, filtering) {
 }
 
 function unlockExplanation(app) {
-  if (app.settings.unlockAll) return 'All mosaics are unlocked (Settings).';
-  return 'Finish a mosaic on any difficulty to unlock the next one. Sunflower & Monarch is open from the start. Want everything now? Turn on Unlock all mosaics in Settings — or make a new level below.';
+  if (app.settings.unlockAll) return 'All puzzles are unlocked.';
+  return 'Finish a mosaic on any difficulty to unlock the next one. Sunflower & Monarch is open from the start. Want everything now? Tap Unlock all puzzles at the top — or make a new level below.';
 }
 
 function collectionCard(ctx, level) {
@@ -205,12 +331,12 @@ function collectionCard(ctx, level) {
   }
   const stats = playable ? app.difficultyStats(level) : null;
   const title = st.kind === 'packLocked' ? 'Locked' : st.kind === 'hidden' ? 'Undiscovered' : level.title;
-  const label = st.kind === 'packLocked' ? `Locked mosaic. Opens after ${st.label}.`
-    : st.kind === 'hidden' ? `Undiscovered mosaic. Finish ${st.more} more in this pack to find it.`
+  const label = st.kind === 'packLocked' ? `Locked mosaic. Opens after ${st.label}. Tap to unlock all puzzles.`
+    : st.kind === 'hidden' ? `Undiscovered mosaic. Finish ${st.more} more in this pack to find it, or tap to unlock all puzzles.`
     : st.kind === 'found' ? `${level.title}, ${st.moves > 0 ? 'in progress' : 'new'}`
     : st.kind === 'explored' ? `${level.title}, explored, ${st.stars} of 3 stars` : `${level.title}, mastered`;
-  return h('button', { key: level.id, type: 'button', class: 'ccard pressable', disabled: !playable, 'aria-label': label,
-    onclick: () => openSheet(ctx, { kind: 'start', levelID: level.id }) },
+  return h('button', { key: level.id, type: 'button', class: ['ccard', 'pressable', !playable && 'locked'], 'aria-label': label,
+    onclick: () => { if (playable) openSheet(ctx, { kind: 'start', levelID: level.id }); else { ctx.ui.dialog = { kind: 'locked', levelID: level.id }; ctx.rerender(); } } },
   pic,
   h('div', { class: 'name', style: { color: playable ? 'var(--sand)' : 'var(--sand-dim)' } }, title),
   h('div', { class: 'foot' },
@@ -297,6 +423,8 @@ function dialogFor(ctx) {
   const closeDialog = () => { ui.dialog = null; rerender(); };
   const d = ui.dialog;
   if (!d) return null;
+  const pd = progressDialogs(ctx, d, closeDialog);
+  if (pd) return pd;
   if (d.kind === 'deletePhoto') return dialog('Delete this mosaic?', null,
     [{ label: 'Delete', prominent: true, destructive: true, onclick: () => { ui.dialog = null; app.deletePhotoLevel(d.id); rerender(); } }, { label: 'Cancel', onclick: closeDialog }], closeDialog);
   if (d.kind === 'reset') return dialog('Reset all progress?', 'Clears finished mosaics, saved games, high scores and settings.',
@@ -406,7 +534,7 @@ function settingsSheet(ctx, close) {
     h('div', { class: 'form-section' }, h('div', { class: 'caps' }, 'Play'),
       h('div', { class: 'form-group' },
         row('Detailed legs (feet plant and lift)', toggleSwitch('set-legs', s.detailedAnts, v => set(x => { x.detailedAnts = v; })), 'set-legs'),
-        row('Unlock all mosaics', toggleSwitch('set-unlock', s.unlockAll, v => set(x => { x.unlockAll = v; })), 'set-unlock'),
+        row('Unlock all puzzles', toggleSwitch('set-unlock', s.unlockAll, v => set(x => { x.unlockAll = v; })), 'set-unlock'),
         h('div', { class: 'form-row stack' }, h('label', { for: 'set-speed' }, 'Default ant speed: ' + s.antSpeed.toFixed(2) + '×'),
           h('input', { id: 'set-speed', type: 'range', min: '0.1', max: '16', step: '0.05', value: String(s.antSpeed), oninput: e => set(x => { x.antSpeed = parseFloat(e.target.value); }) })))),
     h('div', { class: 'form-section' }, h('div', { class: 'caps' }, 'Ant paths'),

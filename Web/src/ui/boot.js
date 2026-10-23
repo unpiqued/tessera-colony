@@ -12,7 +12,9 @@ import { pixelsFromImage } from '../builders/photoLevelBuilder.js';
 import { GameController } from './gameController.js';
 import { VersusController } from './versusController.js';
 import { createStorage } from './storage.js';
-import { thumbURL, forgetThumb, setThumbRerender } from './compat.js';
+import { thumbURL, forgetThumb, setThumbRerender, levelChambers } from './compat.js';
+import { Game } from '../core/engine.js';
+import { makeProgressCode, readProgressCode, applyProgress, finishedCount, storageForgetsOnClose } from './progressCode.js';
 
 /** Plain level objects from the worker → LevelDefinition (palette methods, chambers(), counts). */
 function toLevelDefinition(plain) {
@@ -51,6 +53,28 @@ async function decodePhoto(file) {
 
 const ACCOUNT_SYNC = false;
 
+/**
+ * A saved game whose moves already clear the board counts as finished, even if the page closed
+ * (or the player went Home) before the ants carried the last tiles home — otherwise the mosaics it
+ * unlocks would stay locked. Returns how many games it settled.
+ */
+function settleWonGames(app, onlyID = null) {
+  let settled = 0;
+  for (const level of app.allLevels) {
+    if (onlyID !== null && level.id !== onlyID) continue;
+    if (!SaveStore.hasGame(level.id)) continue;
+    const save = SaveStore.loadGame(level.id);
+    if (!save || !save.moves.length) continue;
+    let g = null;
+    try { g = Game.replay(level, new Board(level.art), levelChambers(level, save.difficulty), save.moves); } catch (e) { g = null; }
+    if (!g || !g.isWon) continue;
+    SaveStore.clearGame(level.id);
+    app.recordCompletion(level.id, save.elapsed, save.undos, save.difficulty, (save.modifiers || []).length);
+    settled++;
+  }
+  return settled;
+}
+
 export function bootApp(rerender) {
   const dataEl = document.getElementById('tc-levels');
   setLevelData(JSON.parse(dataEl.textContent));
@@ -79,6 +103,7 @@ export function bootApp(rerender) {
   app.storage = storage;
   app.subscribe(rerender);
   wireApp(app, rerender);
+  try { settleWonGames(app); } catch (e) { console.error(e); }
   storage.onStatus(rerender);
   // Account sync (the `db` capability) is switched off: the viewer then asks signed-out visitors
   // to sign in with a bar the page can't dismiss. Progress is kept in this browser instead.
@@ -106,11 +131,21 @@ function wireApp(app, rerender) {
     // the photo is decoded here; AppModel.importPhoto builds and opens it
     decodePhoto(file).then(px => app.importPhoto(px || null), () => app.importPhoto(null));
   };
+  app.storageForgets = storageForgetsOnClose();
   app.storageNote = () => app.storage.where === 'account'
     ? 'Your progress, saved games and high scores are kept in your Claude account, private to you, so they follow you to other devices.'
-    : app.storage.where === 'local'
-      ? 'Your progress, saved games and high scores are kept in this browser on this device.'
-      : 'This browser is not letting the page save, so progress lasts only until you close it.';
+    : app.storage.where === 'local' && !app.storageForgets
+      ? 'Your progress, saved games and high scores are kept in this browser on this device. A progress code moves them to another device.'
+      : 'This browser forgets your progress when it closes (Safari and iPhone browsers do this for games inside a page). Copy a progress code before you leave, and paste it next time.';
+  /** Progress codes (see progressCode.js). */
+  app.progressCode = () => makeProgressCode(app.storage.backend);
+  app.loadProgressCode = text => readProgressCode(text).then(data => {
+    applyProgress(app.storage.backend, data);
+    app._reloadFromStore();
+    try { settleWonGames(app); } catch (e) { /* the progress itself is in */ }
+    rerender();
+    return finishedCount(data);
+  });
   app._reloadFromStore = () => {
     app._settings = SaveStore.loadSettings();
     app._settingsView = null;
@@ -136,6 +171,8 @@ function wireApp(app, rerender) {
     const c = app.current;
     if (c && c.boardCanvas) { try { c.boardCanvas.destroy(); } catch (e) { /* gone */ } }
     goHome();
+    // left while the ants were still carrying the last tiles home: the win counts now
+    if (c && !c.visuallyComplete && c.game.isWon) { try { settleWonGames(app, c.level.id); } catch (e) { console.error(e); } }
     if (app._reloadPending) { const f = app._reloadPending; app._reloadPending = null; f(); }
   };
   const endVersus = app.endVersus.bind(app);
