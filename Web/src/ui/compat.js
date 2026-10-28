@@ -34,6 +34,15 @@ export const DIFFICULTIES = Difficulty.allCases.map(id => ({ id, title: Difficul
 export function difficultyTitle(d) { return Difficulty.title(d); }
 export function difficultyBlurb(d) { return Difficulty.blurb(d); }
 
+/**
+ * Sound on/off from a button: saves the setting, and when turning sound on starts audio inside the
+ * same tap (iPhone only allows that during a gesture). Off releases audio so other apps keep playing.
+ */
+export function setSoundOn(app, on) {
+  app.updateSettings(s => { s.soundOn = !!on; });
+  if (on) { try { SoundBoard.shared.unlock(); } catch (e) { /* audio unavailable */ } }
+}
+
 export function levelChambers(level, d) {
   if (typeof level.chambers === 'function') return level.chambers(d);
   return d === 'gentle' ? level.chambersGentle : d === 'expert' ? level.chambersExpert : level.chambersClassic;

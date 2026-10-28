@@ -102,6 +102,7 @@ img.pix, canvas.pix { image-rendering: pixelated; image-rendering: crisp-edges; 
   padding-block: 20px 40px; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
 @media (min-width: 700px) { .home-inner { padding-block: 36px 56px; padding-left: max(36px, env(safe-area-inset-left, 0px)); padding-right: max(36px, env(safe-area-inset-right, 0px)); } }
 .home-title { font-size: clamp(30px, 6vw, 44px); line-height: 1.05; }
+@media (max-width: 420px) { .home-title { font-size: clamp(22px, 6.6vw, 28px); min-width: 0; } header .iconbtn { width: 40px; } header .row { gap: 6px; } }
 .lede { font-size: 17px; color: var(--sand-dim); }
 .big-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 560px) { .big-actions { grid-template-columns: 1fr; } }

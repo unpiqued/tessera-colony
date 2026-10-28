@@ -6,7 +6,7 @@ import { icon } from './icons.js';
 import { pill, sheet, dialog, segmented, teamFace, chamberPod, highScoreList, sectionTitle } from './components.js';
 import {
   VersusBoardCanvas, VersusRules, versusOptions, versusOptionTitle, versusOptionBlurb, DIFFICULTIES, levelChambers,
-  LevelCatalog, thumbURL, levelTileCount, paletteName, formatNumber, PLAYER_COLORS, defaultVersusRules, swiftRounded,
+  LevelCatalog, thumbURL, levelTileCount, paletteName, formatNumber, PLAYER_COLORS, defaultVersusRules, swiftRounded, setSoundOn,
 } from './compat.js';
 import { VersusController } from './versusController.js';
 import { pieceStyle } from './swatch.js';
@@ -44,6 +44,11 @@ export function versusView(ctx) {
     h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Leave the match', onclick: () => { ui.dialog = { kind: 'quit' }; rerender(); } }, icon('xmark.circle.fill', 26)),
     h('div', { class: 'dim grow', style: { fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
       `${c.level.title} · ${versusOptionTitle('layout', rules.layout)} · ${versusOptionTitle('picking', rules.picking)} · ${versusOptionTitle('colour', rules.colour)} · ${versusOptionTitle('scoring', rules.scoring)} · ${DIFFICULTIES.find(d => d.id === rules.difficulty).title}`),
+    h('button', {
+      class: 'iconbtn', type: 'button', 'aria-pressed': app.settings.soundOn ? 'true' : 'false',
+      'aria-label': app.settings.soundOn ? 'Sound on. Tap to turn sound off' : 'Sound off. Tap to turn sound on',
+      onclick: () => setSoundOn(app, !app.settings.soundOn),
+    }, icon(app.settings.soundOn ? 'speaker.wave.2.fill' : 'speaker.slash.fill', 20)),
     h('span', { class: 'dim' }, icon('tortoise.fill', 18)),
     h('input', { id: 'vs-speed', type: 'range', min: '0', max: '1', step: '0.001', style: { maxWidth: '220px' }, 'aria-label': 'Ant speed',
       value: String((Math.log(c.speed) - LOG_LO) / (LOG_HI - LOG_LO)), oninput: e => c.setSpeed(Math.exp(LOG_LO + parseFloat(e.target.value) * (LOG_HI - LOG_LO))) }),

@@ -766,6 +766,7 @@ export class GameController {
   setSoundOn(on) {
     this.soundOn = on;
     if (this.app) this.app.updateSettings(st => { st.soundOn = on; });
+    if (on) { try { SoundBoard.shared.unlock(); } catch (e) { /* audio unavailable */ } }
     this.changed();
   }
 

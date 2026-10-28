@@ -14,6 +14,9 @@
 // * When the browser suspends or interrupts the context (tab hidden on iOS, phone call, ...) every
 //   queued sound is dropped at once, so nothing stale bursts out when it resumes. `setHidden(hidden)`
 //   (called by the UI from `visibilitychange`) suspends audio while the page is hidden.
+// * Sound off releases audio entirely (the context is closed, nothing is created on taps), so a
+//   podcast or music app keeps playing. Sound on mixes with other audio by default ('ambient', no
+//   <audio> element): an <audio> element or 'playback' would pause the other app.
 // * "Play sounds even in Silent mode" maps to `navigator.audioSession.type = 'playback'` (else
 //   'ambient') where the Audio Session API exists (Safari 16.4+). Elsewhere it has no effect: desktop
 //   browsers have no silent switch, Android follows the media volume, and on iOS Safari before 16.4
@@ -487,9 +490,9 @@ function HAS(obj, key) { return obj !== null && Object.prototype.hasOwnProperty.
 /**
  * Plays the synthesized effects through a small pool of voices.
  *
- * * Sounds play even when the iPhone/iPad is in Silent mode by default (audio session 'playback'
- *   where the browser has navigator.audioSession); Settings can switch to 'ambient' (sounds follow
- *   Silent mode).
+ * * The web app mixes with other audio by default (audio session 'ambient': a podcast keeps playing
+ *   and, on iPhone, sounds follow the Ring/Silent switch); Settings can switch to 'playback' (sounds
+ *   play in Silent mode, other audio pauses). Sound off closes the context.
  * * Tile clicks are scheduled against the game clock a fraction of a second ahead, with
  *   sample-accurate start times, so they land exactly when an ant lifts a tile (at any speed).
  * * Throttled: at most ~20 tile clicks and ~12 nest drops a second, one of each other cue per 90 ms,
@@ -571,7 +574,7 @@ export class SoundBoard {
   get actionSounds() { return this._actionSounds; }
   get goalSounds() { return this._goalSounds; }
   get volume() { return this._volume; }
-  /** Play even when the device is in Silent mode ('playback'); otherwise follow it ('ambient'). */
+  /** Play even when the device is in Silent mode ('playback', pauses other audio); otherwise mix ('ambient'). */
   get ignoresSilentMode() { return this._ignoresSilentMode; }
   /** Last audio error (shown by the Sound check in Settings). */
   get lastError() { return this._lastError; }
@@ -579,6 +582,8 @@ export class SoundBoard {
   get startedCount() { return this._startedCount; }
   /** True once unlock() has created the audio context. */
   get isUnlocked() { return this._ctx !== null; }
+  /** True while the silent <audio> element is playing (iPhone/iPad, Silent-mode playback only). */
+  get keepAliveActive() { return !!(this._keepAlive && !this._keepAlive.paused); }
   /** Number of sounds synthesized (38 when ready). */
   get soundsReady() { return this._samples ? Object.keys(this._samples).length : 0; }
   /** The AudioContext (null until unlock()). */
@@ -586,10 +591,13 @@ export class SoundBoard {
 
   /** Called with the saved settings at launch and whenever they change. */
   configure(on, volume, tileClicks, actions = true, goals = true, ignoreSilentMode = true) {
-    // Swift restarts its engine with the new session category; here the type applies at once
+    const wasOn = this._isOn, wasPlayback = this._isOn && this._ignoresSilentMode;
     this._ignoresSilentMode = !!ignoreSilentMode;
-    this._applyAudioSession();
     this._isOn = !!on;
+    // Swift restarts its engine with the new session category; here the type applies at once, and
+    // a context started under the other category is closed (the next tap starts a fresh one)
+    this._applyAudioSession();
+    if ((wasOn && !this._isOn) || (this._isOn && wasPlayback !== this._ignoresSilentMode)) this._release();
     this._tileClicks = !!tileClicks;
     this._actionSounds = !!actions;
     this._goalSounds = !!goals;
@@ -738,6 +746,8 @@ export class SoundBoard {
    * when a context exists. Never throws.
    */
   unlock() {
+    // sound off: touch nothing, so other apps' audio (a podcast, music) keeps playing
+    if (!this._isOn) return this._ctx !== null;
     if (this._isOn && this._ignoresSilentMode && !this._hidden) this._startSilentKeepAlive();
     if (this._ctx) {
       if (!this._offline && this._ctx.state !== 'running' && this._isOn && !this._hidden) {
@@ -898,6 +908,26 @@ export class SoundBoard {
     }
   }
 
+  /**
+   * Lets go of the audio hardware: stops and drops the silent <audio> element (so it can't stay the
+   * phone's "now playing" source) and closes the context. unlock() starts again from scratch.
+   */
+  _release() {
+    this._stopSilentKeepAlive(true);
+    this._stopAll();
+    const ctx = this._ctx;
+    if (!ctx || this._offline) return;
+    this._ctx = null;
+    this._submix = null;
+    this._buffers = {};
+    this._resumePending = false;
+    this._clockOffset = null;
+    try {
+      if (typeof ctx.close === 'function') { const p = ctx.close(); if (p && typeof p.catch === 'function') p.catch(() => {}); }
+      else if (typeof ctx.suspend === 'function') ctx.suspend().catch(() => {});
+    } catch (e) { /* already closed */ }
+  }
+
   _build(ctx) {
     this._ctx = ctx;
     this._offline = typeof ctx.startRendering === 'function';
@@ -912,6 +942,7 @@ export class SoundBoard {
     this._clockOffset = null;
     this._offlineHost0 = this._now();
     const onState = () => {
+      if (this._ctx !== ctx) return;              // a context released earlier
       this._clockOffset = null;
       if (ctx.state === 'running') {
         // sounds queued while a resume was pending are stale if it took long (e.g. unlock() was
@@ -948,9 +979,14 @@ export class SoundBoard {
     } catch (e) { /* media playback unavailable: Web Audio still plays when the switch is on ring */ }
   }
 
-  _stopSilentKeepAlive() {
+  _stopSilentKeepAlive(drop = false) {
     const a = this._keepAlive;
     if (a && !a.paused) { try { a.pause(); } catch (e) { /* ignore */ } }
+    if (a && drop) {
+      // an emptied element no longer holds the media session
+      try { a.removeAttribute('src'); a.load(); } catch (e) { /* ignore */ }
+      this._keepAlive = null;
+    }
   }
 
   /** iOS Safari before 15 only unlocks output once a buffer has been started inside the gesture. */
@@ -984,7 +1020,7 @@ export class SoundBoard {
   _applyAudioSession() {
     const s = audioSession();
     if (!s) return;
-    const want = this._ignoresSilentMode ? 'playback' : 'ambient';
+    const want = this._isOn && this._ignoresSilentMode ? 'playback' : 'ambient';
     try {
       if (s.type !== want) s.type = want;
     } catch (e) {

@@ -59,7 +59,7 @@ test('AppSettings: every field and default', () => {
     groundColor: GeneratedPalette.soil, unlockAll: false, soundOn: true, soundVolume: 0.8, tileClicks: true,
     actionSounds: true, goalSounds: true, pathStyle: 'randomTeam', pathStyleVersion: 2, soundInSilentMode: true,
     versusRules: VersusRules(), versusLevelID: 'firstDig', playerName: '', lastModifiers: [], ratingFilter: 'all',
-    statusFilter: 'all', versusRulesVersion: 2,
+    statusFilter: 'all', versusRulesVersion: 2, mixWithOtherAudio: true,
   });
   assert.deepEqual([...AppSettings.keys], Object.keys(AppSettings()));
 });
@@ -69,7 +69,8 @@ test('settings round-trip through a fake backend; every write saves (Swift didSe
   SaveStore.setBackend(b);
   const configured = [];
   const app = new AppModel({ soundBoard: { configure: (...a) => configured.push(a) } });
-  assert.deepEqual(configured, [[true, 0.8, true, true, true, true]], 'sound applied at launch');
+  // web: mixing with other audio is on by default, so Silent-mode playback ('playback') is not asked for
+  assert.deepEqual(configured, [[true, 0.8, true, true, true, false]], 'sound applied at launch');
   app.settings.antSpeed = 4;
   app.settings.soundVolume = 0.25;
   app.settings.coachSeen.push('tapTeam');
@@ -82,7 +83,10 @@ test('settings round-trip through a fake backend; every write saves (Swift didSe
   assert.equal(s.versusRules.layout, 'shared');
   assert.deepEqual(s.lastModifiers, ['noHints']);
   assert.deepEqual(Object.keys(s), [...AppSettings.keys], 'Swift field order');
-  assert.deepEqual(configured.at(-1), [true, 0.25, true, true, true, true]);
+  assert.deepEqual(configured.at(-1), [true, 0.25, true, true, true, false]);
+  app.settings.mixWithOtherAudio = false;
+  assert.deepEqual(configured.at(-1), [true, 0.25, true, true, true, true], 'mixing off: Silent-mode playback');
+  app.settings.mixWithOtherAudio = true;
   // values are copied in (Swift value semantics)
   const rules = VersusRules({ picking: 'front' });
   app.settings.versusRules = rules;

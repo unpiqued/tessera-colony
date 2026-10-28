@@ -175,8 +175,9 @@ export class AppModel {
 
   _applySound() {
     const s = this._settings;
+    // web: mixing with other audio wins over Silent-mode playback (which would pause podcasts)
     this.hooks.soundBoard?.configure?.(s.soundOn, s.soundVolume, s.tileClicks, s.actionSounds, s.goalSounds,
-      s.soundInSilentMode);
+      s.soundInSilentMode && !s.mixWithOtherAudio);
   }
 
   get allLevels() { return LevelCatalog.builtIn.concat(this._photoLevels.map(r => r.level)); }

@@ -532,11 +532,15 @@ test('volume and Silent mode: master gain, navigator.audioSession playback / amb
     assert.equal(sb._submix.gain.value, 1);
     sb.configure(true, 0.25, true, true, true, false);
     assert.equal(session.type, 'ambient');
+    assert.equal(sb.isUnlocked, false, 'a context started for playback is let go; the next tap starts a mixing one');
+    sb.unlock();
     assert.equal(sb._submix.gain.value, 0.25);
     assert.equal(sb.ignoresSilentMode, false);
     assert.equal(sb.status().category, 'ambient');
     sb.configure(true, 0.25, true, true, true, true);
     assert.equal(session.type, 'playback');
+    sb.configure(false, 0.25, true, true, true, true);
+    assert.equal(session.type, 'ambient', 'sound off never asks for playback (it would pause a podcast)');
   } finally {
     if (had) Object.defineProperty(globalThis.navigator, 'audioSession', had);
     else delete globalThis.navigator.audioSession;
@@ -617,4 +621,36 @@ test('context clock mapping keeps clinks evenly spaced although currentTime move
   sb.tile(1, 0, 0);
   const last = started(trace).at(-1);
   assert.ok(Math.abs(last.when - (last.at + 2.8 + lead)) < 1e-9);
+});
+
+test('sound off lets go of audio: no context on taps, the running one is released, on again starts afresh', () => {
+  const clock = { t: 100 };
+  let made = 0;
+  const contexts = [];
+  const sb = new SoundBoard({ now: () => clock.t, createContext: () => { made += 1; const c = fakeContext(clock); c.closed = false; c.close = () => { c.closed = true; c.state = 'closed'; return Promise.resolve(); }; contexts.push(c); return c; }, scheduleLead: 0 });
+  sb._install(all);
+  sb.configure(false, 0.8, true);
+  assert.equal(sb.unlock(), false, 'a tap with sound off starts nothing');
+  assert.equal(made, 0);
+  assert.equal(sb.isUnlocked, false);
+  sb.configure(true, 0.8, true, true, true, false);
+  assert.equal(sb.unlock(), true);
+  assert.equal(made, 1);
+  sb.play(SoundCue.send);
+  assert.equal(sounds(contexts[0]).length, 1);
+  sb.configure(false, 0.8, true, true, true, false);
+  assert.equal(contexts[0].closed, true, 'turning sound off closes the context');
+  assert.equal(sb.isUnlocked, false);
+  sb.unlock();
+  assert.equal(made, 1, 'still nothing while off');
+  sb.configure(true, 0.8, true, true, true, false);
+  sb.unlock();
+  assert.equal(made, 2, 'on again: a fresh context');
+  contexts[0].browserSets('closed');          // a late event from the old context changes nothing
+  clock.t += 1;
+  sb.play(SoundCue.send);
+  assert.equal(sounds(contexts[1]).length, 1);
+  // changing an unrelated setting doesn't restart audio
+  sb.configure(true, 0.5, true, true, true, false);
+  assert.equal(contexts[1].closed, false);
 });

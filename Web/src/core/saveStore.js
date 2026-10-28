@@ -154,7 +154,7 @@ export function CompletionNews({ newBest, firstClear, unlocked, stars = 0, newSt
  *   soundVolume 0.8 (0 ... 1); tileClicks true; actionSounds true; goalSounds true;
  *   pathStyle 'randomTeam'; pathStyleVersion 2; soundInSilentMode true; versusRules VersusRules();
  *   versusLevelID 'firstDig'; playerName ''; lastModifiers []; ratingFilter 'all';
- *   statusFilter 'all'; versusRulesVersion 2.
+ *   statusFilter 'all'; versusRulesVersion 2; mixWithOtherAudio true (web only).
  */
 export function AppSettings() {
   return {
@@ -198,6 +198,12 @@ export function AppSettings() {
     statusFilter: 'all',
     /** 2 = two-player colour rule defaults to Any colour (older builds defaulted to No colour twice). */
     versusRulesVersion: 2,
+    /**
+     * Web only: let podcasts and music keep playing (audio session 'ambient'; on iPhone the game's
+     * sounds then follow the Ring/Silent switch). Off: soundInSilentMode applies ('playback', which
+     * pauses other audio).
+     */
+    mixWithOtherAudio: true,
   };
 }
 
@@ -206,7 +212,7 @@ AppSettings.keys = Object.freeze(Object.keys({
   difficulty: 0, antSpeed: 0, detailedAnts: 0, coachSeen: 0, hasLaunchedBefore: 0, photoDetail: 0,
   groundColor: 0, unlockAll: 0, soundOn: 0, soundVolume: 0, tileClicks: 0, actionSounds: 0, goalSounds: 0,
   pathStyle: 0, pathStyleVersion: 0, soundInSilentMode: 0, versusRules: 0, versusLevelID: 0, playerName: 0,
-  lastModifiers: 0, ratingFilter: 0, statusFilter: 0, versusRulesVersion: 0,
+  lastModifiers: 0, ratingFilter: 0, statusFilter: 0, versusRulesVersion: 0, mixWithOtherAudio: 0,
 }));
 
 /** A deep value copy (works on the live settings object of AppModel too). */
@@ -272,6 +278,7 @@ AppSettings.decode = o => {
     s.versusRules.colour = 'any';
     s.versusRulesVersion = 2;
   }
+  s.mixWithOtherAudio = take('mixWithOtherAudio', isBool, true);
   return s;
 };
 

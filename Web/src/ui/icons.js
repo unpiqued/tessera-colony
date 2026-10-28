@@ -18,6 +18,7 @@ const ICONS = {
   'ant': ANT, 'ant.fill': ANT,
   'speaker.wave.2': F('M4 9.5h3l4.5-4v13L7 14.5H4z') + S('M15 9a4 4 0 0 1 0 6M17.6 6.5a7.5 7.5 0 0 1 0 11'),
   'speaker.wave.2.fill': F('M4 9.5h3l4.5-4v13L7 14.5H4z') + S('M15 9a4 4 0 0 1 0 6M17.6 6.5a7.5 7.5 0 0 1 0 11'),
+  'speaker.slash.fill': F('M4 9.5h3l4.5-4v13L7 14.5H4z') + S('M15.5 9.5l5 5M20.5 9.5l-5 5'),
   'speaker.wave.3': F('M3 9.5h3l4.5-4v13L6 14.5H3z') + S('M13.5 9.3a3.6 3.6 0 0 1 0 5.4M16 7a6.8 6.8 0 0 1 0 10M18.6 4.6a10 10 0 0 1 0 14.8'),
   'point.topleft.down.curvedto.point.bottomright.up': C(5, 5, 2.2, true) + C(19, 19, 2.2, true) + S('M5 7.5c0 7 14 2 14 9'),
   'paintpalette': S('M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-1.6-1-2.6 1-1.4 2-1.4h2.5A3.5 3.5 0 0 0 21 11.5C21 6.8 17 3 12 3z') + `<g fill="currentColor"><circle cx="7.5" cy="11" r="1.3"/><circle cx="10" cy="7.3" r="1.3"/><circle cx="14.5" cy="7.3" r="1.3"/></g>`,

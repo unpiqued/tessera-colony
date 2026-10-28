@@ -10,7 +10,7 @@ import { howToSheet } from './howTo.js';
 import {
   LevelCatalog, DIFFICULTIES, difficultyTitle, difficultyBlurb, levelChambers, levelTileCount, levelTeamCount, ratingFor,
   RatingFilters, StatusFilters, ChallengeModifier, modifierInfo, ScoreRules, pathStyles, pathStyleInfo, GroundPresets,
-  SoundBoard, Sfx, thumbURL, PhotoDetails, packBlurb, formatNumber, HighScoreKinds,
+  SoundBoard, Sfx, thumbURL, PhotoDetails, packBlurb, formatNumber, HighScoreKinds, setSoundOn,
 } from './compat.js';
 import { runSelfTest } from './selfTest.js';
 
@@ -57,6 +57,11 @@ function header(ctx) {
     h('div', { class: 'row' },
       h('span', { class: 'brass' }, icon('ant.fill', 34)),
       h('h1', { class: 'title home-title grow', style: { margin: 0 } }, 'Tessera Colony'),
+      h('button', {
+        class: 'iconbtn', type: 'button', 'aria-pressed': ctx.app.settings.soundOn ? 'true' : 'false',
+        'aria-label': ctx.app.settings.soundOn ? 'Sound on. Tap to turn sound off' : 'Sound off. Tap to turn sound on',
+        title: ctx.app.settings.soundOn ? 'Sound on' : 'Sound off', onclick: () => setSoundOn(ctx.app, !ctx.app.settings.soundOn),
+      }, icon(ctx.app.settings.soundOn ? 'speaker.wave.2.fill' : 'speaker.slash.fill', 26)),
       h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'How to play', onclick: () => openSheet(ctx, { kind: 'howto' }) }, icon('questionmark.circle', 26)),
       h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Settings', onclick: () => openSheet(ctx, { kind: 'settings' }) }, icon('gearshape', 26))),
     h('p', { class: 'lede', style: { margin: 0 } }, 'Send the colony out. Carry the mosaic home, one tile at a time.'));
@@ -543,7 +548,7 @@ function settingsSheet(ctx, close) {
       h('div', { class: 'form-foot' }, pathStyleInfo(s.pathStyle).blurb + ' Applies to ants launched after you change it; ants already walking finish their route. Ants carrying a tile always come home in the middle lane.')),
     h('div', { class: 'form-section' }, h('div', { class: 'caps' }, 'Sound'),
       h('div', { class: 'form-group' },
-        row('Sound effects', toggleSwitch('set-sound', s.soundOn, v => set(x => { x.soundOn = v; })), 'set-sound'),
+        row('Sound effects', toggleSwitch('set-sound', s.soundOn, v => setSoundOn(app, v)), 'set-sound'),
         h('div', { class: 'form-row stack' }, h('label', { for: 'set-vol', style: { opacity: soundOff ? 0.5 : 1 } }, `Volume: ${Math.round(s.soundVolume * 100)}%`),
           h('input', { id: 'set-vol', type: 'range', min: '0', max: '1', step: '0.01', value: String(s.soundVolume), disabled: soundOff,
             oninput: e => set(x => { x.soundVolume = parseFloat(e.target.value); }), onchange: () => SoundBoard.shared.play(Sfx.teamDone) })),
@@ -552,14 +557,19 @@ function settingsSheet(ctx, close) {
         h('div', { class: 'form-row' }, h('label', { class: 'grow', for: 'set-goals' }, 'Goal sounds'), pill('Play a sample', () => SoundBoard.shared.playSample('goal'), { disabled: soundOff }),
           toggleSwitch('set-goals', s.goalSounds, v => set(x => { x.goalSounds = v; }), soundOff)),
         row('Colony clinks (ants lifting and delivering tiles)', toggleSwitch('set-clinks', s.tileClicks, v => set(x => { x.tileClicks = v; }), soundOff), 'set-clinks'),
-        row('Play sounds even in Silent mode (iPhone, where supported)', toggleSwitch('set-silent', s.soundInSilentMode, v => set(x => { x.soundInSilentMode = v; }), soundOff), 'set-silent'),
+        h('label', { class: 'form-row', for: 'set-mix' },
+          h('span', { class: 'col grow', style: { gap: '2px' } }, h('span', null, 'Keep podcasts and music playing'),
+            h('span', { class: 'dim', style: { fontSize: '12px', lineHeight: '1.4' } }, s.mixWithOtherAudio
+              ? 'Game sounds mix in with other audio. On iPhone they follow the Ring/Silent switch.'
+              : 'Game sounds play even in Silent mode, but pause podcasts and music.')),
+          toggleSwitch('set-mix', s.mixWithOtherAudio, v => set(x => { x.mixWithOtherAudio = v; if (!v) x.soundInSilentMode = true; }), soundOff)),
         h('div', { class: 'form-row stack' },
           h('button', { type: 'button', class: 'row brass', style: { fontWeight: 600, minHeight: '36px' }, onclick: () => {
             const played = SoundBoard.shared.playTestSound();
             setTimeout(() => { ui.soundReport = app.soundReport(played); rerender(); }, 400);
           } }, icon('speaker.wave.3', 18), 'Sound check: play a test chime'),
           ui.soundReport ? h('div', { class: 'mono' }, ui.soundReport) : null)),
-      h('div', { class: 'form-foot' }, 'Action sounds are dry wood and clay: sending, scouting, undo, adding a slot, returning a team, a refused tap, a team that must wait, blocked, hints. Goal sounds are bells and glass: a team finishing, a whole colour lifted, each quarter of the mosaic home, the finished mosaic, a new best time and a newly unlocked mosaic. Colony clinks give every colour its own note. Everything is synthesized in the browser; it starts after your first tap.')),
+      h('div', { class: 'form-foot' }, 'Action sounds are dry wood and clay: sending, scouting, undo, adding a slot, returning a team, a refused tap, a team that must wait, blocked, hints. Goal sounds are bells and glass: a team finishing, a whole colour lifted, each quarter of the mosaic home, the finished mosaic, a new best time and a newly unlocked mosaic. Colony clinks give every colour its own note. Everything is synthesized in the browser; it starts after your first tap. With Sound effects off the game doesn’t use audio at all, so whatever else is playing carries on.')),
     h('div', { class: 'form-section' }, h('div', { class: 'caps' }, 'Ground colour behind the mosaic'),
       h('div', { class: 'form-group' }, h('div', { class: 'form-row stack' },
         h('div', { class: 'swatches' }, GroundPresets.all.map(([name, col]) => h('button', { key: name, type: 'button', class: ['swatch-btn', s.groundColor === col && 'on'], onclick: () => set(x => { x.groundColor = col; }) },
